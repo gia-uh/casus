@@ -125,6 +125,7 @@ class Scenario:
                     intl_legitimacy=float(spec.get("intl_legitimacy", 60)),
                     isr=float(spec.get("isr", 0.6)),
                     fuel_inflow=float(spec.get("fuel_inflow", 0)),
+                    reserve_pool=float(spec.get("reserve_pool", 0)),
                 )
                 for actor_id, spec in self.actors.items()
             },

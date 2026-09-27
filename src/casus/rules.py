@@ -67,6 +67,13 @@ ACTION_FUEL_SURCHARGE: dict[str, float] = {
     "mobilize": 2.0,
 }
 
+#: Force strength one `mobilize` action calls up, drawn from the actor's reserve
+#: pool. CSIS puts an invasion of Cuba at 100,000 personnel taking months to
+#: assemble and visible long before it begins; at this rate and one point per
+#: thousand troops, that is a dozen consecutive turns of open mobilisation,
+#: which is the point.
+REINFORCEMENT_PER_MOBILIZE = 8.0
+
 #: Fuel-days one `supply` action transfers, and the floor the supplier must keep.
 SUPPLY_TRANSFER = 10.0
 SUPPLY_RESERVE = 10.0
@@ -280,6 +287,7 @@ def resolve(
     record_escalation(legal, draft)
     burn_fuel(legal, draft)
     apply_supply(legal, draft)
+    apply_mobilization(legal, draft)
     apply_movement(legal, draft)
     apply_attrition(legal, draft, rng)
     apply_consequences(legal, draft, rng)
@@ -483,6 +491,54 @@ POSTURE_ACTIONS: dict[str, str] = {
     "air_campaign": "offensive",
     "mobilize": "defensive",
 }
+
+
+def apply_mobilization(actions: list[Action], draft: _Draft) -> None:
+    """Call up reserves. Nothing appears that the scenario did not budget for."""
+    for action in actions:
+        if action.type != "mobilize":
+            continue
+        actor = draft.actors[action.actor]
+        called = min(REINFORCEMENT_PER_MOBILIZE * action.intensity, actor.reserve_pool)
+        if called <= 0:
+            draft.say(
+                "reserves_exhausted",
+                actor=action.actor,
+                reason="there are no reserves left to call up",
+            )
+            continue
+        home = [
+            f for f in draft.forces.values() if f.owner == action.actor and f.kind == "ground"
+        ]
+        if not home:
+            draft.say(
+                "reserves_exhausted",
+                actor=action.actor,
+                reason="no ground formation exists to absorb the reservists",
+            )
+            continue
+        target = (
+            home[0]
+            if action.region is None
+            else next((f for f in home if f.region == action.region), home[0])
+        )
+        draft.forces[target.id] = dataclasses.replace(target, strength=target.strength + called)
+        draft.actors[action.actor] = dataclasses.replace(
+            actor, reserve_pool=actor.reserve_pool - called
+        )
+        draft.say(
+            "mobilized",
+            actor=action.actor,
+            region=target.region,
+            reason=(
+                f"called up {called * TROOPS_PER_STRENGTH_POINT:,.0f} personnel; "
+                f"{(actor.reserve_pool - called) * TROOPS_PER_STRENGTH_POINT:,.0f} remain in reserve"
+            ),
+            detail={
+                "called": round(called, 2),
+                "remaining": round(actor.reserve_pool - called, 2),
+            },
+        )
 
 
 def apply_movement(actions: list[Action], draft: _Draft) -> None:

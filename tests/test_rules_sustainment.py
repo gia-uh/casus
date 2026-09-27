@@ -122,3 +122,60 @@ def test_supply_is_rejected_when_the_supplier_cannot_pay():
     # Compared against a turn where nothing was attempted, not against the state
     # before the turn: every actor still collects its inflow either way.
     assert attempted.actors["CU"].fuel_days == control.actors["CU"].fuel_days
+
+
+# --- mobilisation -----------------------------------------------------------
+
+
+def test_mobilizing_calls_up_reserves_and_draws_down_the_pool():
+    world = make_world(
+        actors={"US": make_actor("US", reserve_pool=100.0), "CU": make_actor("CU")},
+        forces=(make_force("US", "ground", region="r1", strength=5.0),),
+    )
+    out, res = _resolve(world, [Action(actor="US", type="mobilize")])
+
+    army = next(f for f in out.forces if f.owner == "US")
+    assert army.strength == 5.0 + rules.REINFORCEMENT_PER_MOBILIZE
+    assert out.actors["US"].reserve_pool == 100.0 - rules.REINFORCEMENT_PER_MOBILIZE
+    assert any(r.kind == "mobilized" for r in res)
+
+
+def test_higher_intensity_mobilizes_more():
+    def called(intensity):
+        world = make_world(
+            actors={"US": make_actor("US", reserve_pool=100.0), "CU": make_actor("CU")},
+            forces=(make_force("US", "ground", region="r1", strength=5.0),),
+        )
+        out, _ = _resolve(world, [Action(actor="US", type="mobilize", intensity=intensity)])
+        return next(f.strength for f in out.forces if f.owner == "US")
+
+    assert called(3) > called(1)
+
+
+def test_mobilization_cannot_exceed_the_reserve_pool():
+    world = make_world(
+        actors={"US": make_actor("US", reserve_pool=3.0), "CU": make_actor("CU")},
+        forces=(make_force("US", "ground", region="r1", strength=5.0),),
+    )
+    out, _ = _resolve(world, [Action(actor="US", type="mobilize", intensity=3)])
+    assert next(f.strength for f in out.forces if f.owner == "US") == 8.0
+    assert out.actors["US"].reserve_pool == 0.0
+
+
+def test_an_exhausted_pool_reports_rather_than_conjuring_troops():
+    world = make_world(
+        actors={"US": make_actor("US", reserve_pool=0.0), "CU": make_actor("CU")},
+        forces=(make_force("US", "ground", region="r1", strength=5.0),),
+    )
+    out, res = _resolve(world, [Action(actor="US", type="mobilize")])
+    assert next(f.strength for f in out.forces if f.owner == "US") == 5.0
+    assert any(r.kind == "reserves_exhausted" for r in res)
+
+
+def test_reaching_an_invasion_sized_force_takes_many_turns_of_mobilisation():
+    """CSIS puts an invasion of Cuba at 100,000 personnel taking months to
+    assemble and visible long before it begins. At this rate that is a dozen
+    consecutive turns of open mobilisation, which is the point of the rule."""
+    needed = 100_000 / rules.TROOPS_PER_STRENGTH_POINT
+    turns = needed / rules.REINFORCEMENT_PER_MOBILIZE
+    assert turns >= 12

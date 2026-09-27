@@ -149,6 +149,10 @@ class ActorState:
     #: blockade is modelled as driving this to zero, not as a special case
     #: inside the combat rules.
     fuel_inflow: float = 0.0
+    #: Force strength this actor can still call up, one `mobilize` at a time.
+    #: An invasion the published estimates put at months of preparation is
+    #: therefore many turns of visible mobilisation, not a free action.
+    reserve_pool: float = 0.0
     escalation_rung: int = 0
 
     def to_json(self) -> dict[str, Any]:
