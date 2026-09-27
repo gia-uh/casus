@@ -120,6 +120,61 @@ MAX_VIEW_NOISE = 0.35
 #: hand a blind actor the true number and make the fog test flaky.
 MIN_NOISE_FRACTION = 0.5
 
+# --- air defence ------------------------------------------------------------
+
+#: Damage a suppression campaign does to air defences per turn, per point of
+#: attacker air power, per point of intensity. Calibrated so a 60-point battery
+#: under a sustained intensity-3 campaign by a 100-point air force falls below
+#: the floor on the fourth turn, matching the four-to-five days publicly
+#: reported for the opening of the 2026 Iran campaign.
+SUPPRESSION_COEFFICIENT = 0.055
+
+#: Below this strength an air defence no longer imposes a penalty on strikes.
+#: Crossing it is the single most consequential threshold in the model: after it
+#: the attacker overflies freely and switches to cheap munitions.
+SUPPRESSION_FLOOR = 10.0
+
+#: How much surviving air defence divides incoming strike damage, per 100 points
+#: of its strength.
+AIR_DEFENCE_PROTECTION = 0.9
+
+# --- occupation -------------------------------------------------------------
+
+#: One member of the security forces per this many inhabitants is the
+#: stability-operations rule of thumb. CSIS applies it to Cuba to arrive at an
+#: external force of about 100,000 for ten million people, assuming half the
+#: total comes from indigenous police. This function returns the TOTAL; how much
+#: of it is indigenous is a scenario question, not a rule.
+INHABITANTS_PER_SECURITY_MEMBER = 50
+
+#: Headcount one point of abstract force strength stands for.
+TROOPS_PER_STRENGTH_POINT = 1000
+
+#: Control lost per turn by an occupier below the required ratio, at the point
+#: where it has none of the force it needs. Scaled by how short it falls.
+CONTROL_DECAY_MAX = 12.0
+
+#: Irregular strength that regenerates per turn in an under-occupied region.
+INSURGENT_REGENERATION = 2.5
+
+# --- civilian consequences --------------------------------------------------
+
+#: Civilian distress added per turn, per point of missing infrastructure.
+DISTRESS_PER_DAMAGE_POINT = 0.25
+
+#: Distress added per turn when the region owner has run out of fuel entirely.
+DISTRESS_FROM_FUEL_EXHAUSTION = 6.0
+
+#: International legitimacy an attacker loses per turn, per point of distress in
+#: a region it is striking.
+LEGITIMACY_COST_PER_DISTRESS = 0.08
+
+#: Domestic support a region's owner loses per turn, per point of distress.
+SUPPORT_COST_PER_DISTRESS = 0.05
+
+#: Rung at or above which an action counts as causing civilian harm.
+HARM_RUNG = 5
+
 #: Legal range for an action's intensity. A model will ask for 10, or 1000;
 #: clamping happens once, at the edge, so every rule downstream sees the same
 #: number. Clamping in one rule and not another let an absurd intensity bankrupt
@@ -486,11 +541,19 @@ def apply_attrition(actions: list[Action], draft: _Draft, rng: random.Random) ->
             for f in draft.forces.values()
             if f.owner == action.actor and f.kind in DELIVERY_KINDS[action.type]
         ]
-        defenders = [
+        all_defenders = [
             f
             for f in draft.forces.values()
             if f.owner != action.actor and f.region == action.region
         ]
+        # Air defences are hunted, not slugged out with: against an air or naval
+        # attacker they take suppression damage on their own schedule and stay
+        # out of the exchange. Leaving them in made a battery evaporate in one
+        # turn, which contradicts every published account of a SEAD campaign.
+        by_air = DELIVERY_KINDS[action.type] <= frozenset({"air", "naval"})
+        defenders = [f for f in all_defenders if not (by_air and f.kind == "air_defense")]
+        if by_air:
+            suppress_air_defense(action, all_defenders, draft)
         if not attackers:
             continue
         if not defenders:
@@ -503,7 +566,9 @@ def apply_attrition(actions: list[Action], draft: _Draft, rng: random.Random) ->
             _damage_infrastructure(action, region, draft)
             continue
 
-        attack_power = sum(_attack_power(f) for f in attackers)
+        attack_power = sum(_attack_power(f) for f in attackers) / _air_defence_divisor(
+            all_defenders if by_air else []
+        )
         defend_power = sum(_attack_power(f) for f in defenders)
         intensity = action.intensity
 
@@ -643,7 +708,214 @@ def perturb_view(state: WorldState, actor: str, rng: random.Random) -> WorldStat
 
 
 def apply_consequences(actions: list[Action], draft: _Draft, rng: random.Random) -> None:
-    """Named extension point. Task 6 fills this in with civilian distress,
-    legitimacy, air-defence suppression and the occupation ratio. It exists now
-    so those land as a patch rather than a restructure."""
-    del actions, draft, rng
+    """Everything that follows from the fighting rather than being the fighting."""
+    del rng  # consequences are fully determined; the randomness is in the exchange
+    decay_control(draft)
+    update_distress_and_legitimacy(actions, draft)
+
+
+# --- air defence ------------------------------------------------------------
+
+
+def suppress_air_defense(action: Action, defenders: list[Force], draft: _Draft) -> None:
+    """Degrade the air defences in a region under air or naval attack.
+
+    Deterministic, with no jitter. The point of this rule is the threshold, and a
+    threshold whose crossing turn wobbles by one is useless both as a teaching
+    figure and as a test.
+    """
+    batteries = [f for f in defenders if f.kind == "air_defense"]
+    if not batteries:
+        return
+    attackers = [
+        f
+        for f in draft.forces.values()
+        if f.owner == action.actor and f.kind in DELIVERY_KINDS[action.type]
+    ]
+    air_power = sum(_attack_power(f) for f in attackers)
+    if air_power <= 0:
+        return
+
+    before = sum(f.strength for f in batteries)
+    damage = SUPPRESSION_COEFFICIENT * air_power * action.intensity
+    total = sum(f.strength for f in batteries)
+    for battery in batteries:
+        share = battery.strength / total if total else 0.0
+        draft.forces[battery.id] = dataclasses.replace(
+            battery, strength=max(0.0, battery.strength - damage * share)
+        )
+    after = sum(draft.forces[f.id].strength for f in batteries)
+
+    draft.say(
+        "air_defence_degraded",
+        actor=action.actor,
+        region=action.region,
+        reason=f"air defences reduced from {before:.1f} to {after:.1f}",
+        detail={"before": round(before, 2), "after": round(after, 2)},
+    )
+    if before >= SUPPRESSION_FLOOR > after:
+        draft.say(
+            "air_defence_suppressed",
+            actor=action.actor,
+            region=action.region,
+            reason=(
+                f"air defences fell below {SUPPRESSION_FLOOR:.0f}; "
+                f"the airspace over {action.region} is now open"
+            ),
+            detail={"floor": SUPPRESSION_FLOOR, "remaining": round(after, 2)},
+        )
+
+
+def _air_defence_divisor(defenders: list[Force]) -> float:
+    """How much surviving air defence blunts a strike. 1.0 once suppressed."""
+    strength = sum(f.strength for f in defenders if f.kind == "air_defense")
+    if strength < SUPPRESSION_FLOOR:
+        return 1.0
+    return 1.0 + AIR_DEFENCE_PROTECTION * strength / 100.0
+
+
+# --- occupation -------------------------------------------------------------
+
+
+def occupation_requirement(population: int) -> int:
+    """Security-force headcount needed to hold a population without an active
+    insurgency. Returns the total, indigenous and external together."""
+    return population // INHABITANTS_PER_SECURITY_MEMBER
+
+
+def decay_control(draft: _Draft) -> None:
+    """An occupier short of the ratio loses control, and insurgents regenerate.
+
+    This is the rule that makes taking ground different from holding it. A model
+    that captures a city and then watches the number fall every turn is being
+    shown, not told, why the published invasion estimates are what they are.
+    """
+    for region_id, region in list(draft.regions.items()):
+        occupied = bool(region.country) and region.owner not in ("", region.country)
+        if not occupied or region.population <= 0:
+            continue
+        required = occupation_requirement(region.population)
+        present = (
+            sum(
+                f.strength
+                for f in draft.forces.values()
+                if f.owner == region.owner
+                and f.kind in ("ground", "irregular")
+                and f.region == region_id
+            )
+            * TROOPS_PER_STRENGTH_POINT
+        )
+        if present >= required:
+            continue
+        shortfall = 1.0 - (present / required if required else 1.0)
+        draft.regions[region_id] = dataclasses.replace(
+            region, control=max(0.0, region.control - CONTROL_DECAY_MAX * shortfall)
+        )
+        draft.say(
+            "insufficient_occupation_force",
+            actor=region.owner,
+            region=region_id,
+            reason=(
+                f"holding {region.name} needs {required:,} security personnel; "
+                f"{int(present):,} are present, so control is slipping"
+            ),
+            detail={
+                "required": required,
+                "present": int(present),
+                "shortfall": round(shortfall, 3),
+            },
+        )
+        _regenerate_insurgents(region, draft)
+
+
+def _regenerate_insurgents(region: RegionState, draft: _Draft) -> None:
+    """Under-occupied ground grows irregulars loyal to the original owner."""
+    if not region.country or region.country == region.owner:
+        return
+    existing = [
+        f
+        for f in draft.forces.values()
+        if f.owner == region.country and f.kind == "irregular" and f.region == region.id
+    ]
+    if existing:
+        force = existing[0]
+        draft.forces[force.id] = dataclasses.replace(
+            force, strength=force.strength + INSURGENT_REGENERATION
+        )
+        return
+    new_id = f"{region.country}-insurgents-{region.id}"
+    if new_id in draft.forces:
+        return
+    draft.forces[new_id] = Force(
+        id=new_id,
+        owner=region.country,
+        kind="irregular",
+        strength=INSURGENT_REGENERATION,
+        readiness=0.4,
+        region=region.id,
+        posture="dispersed",
+    )
+    draft.say(
+        "insurgency_formed",
+        actor=region.country,
+        region=region.id,
+        reason=f"irregular resistance has appeared in {region.name}",
+    )
+
+
+# --- civilian consequences --------------------------------------------------
+
+
+def update_distress_and_legitimacy(actions: list[Action], draft: _Draft) -> None:
+    """Civilian suffering, and who pays for it politically.
+
+    The two costs run on different curves on purpose. Distress in a region costs
+    the attacker international legitimacy and the region's owner domestic
+    support: the same suffering is a liability for both sides, which is the
+    dynamic that makes an attritional pressure campaign a race rather than a
+    siege.
+    """
+    exhausted = {
+        r.actor for r in draft.resolutions if r.kind == "fuel_exhausted" and r.actor is not None
+    }
+    for region_id, region in list(draft.regions.items()):
+        if region.population <= 0:
+            continue
+        added = DISTRESS_PER_DAMAGE_POINT * (100.0 - region.infrastructure)
+        if region.owner in exhausted:
+            added += DISTRESS_FROM_FUEL_EXHAUSTION
+        if added <= 0:
+            continue
+        draft.regions[region_id] = dataclasses.replace(
+            region, civilian_distress=min(100.0, region.civilian_distress + added)
+        )
+
+    for action in actions:
+        if ESCALATION_RUNGS[action.type] < HARM_RUNG or action.region is None:
+            continue
+        region = draft.regions.get(action.region)
+        if region is None or region.population <= 0:
+            continue
+        cost = LEGITIMACY_COST_PER_DISTRESS * region.civilian_distress
+        if cost <= 0:
+            continue
+        draft.bump(action.actor, "intl_legitimacy", -cost)
+        draft.say(
+            "legitimacy_cost",
+            actor=action.actor,
+            region=action.region,
+            reason=(
+                f"civilian distress in {region.name} cost {action.actor} "
+                f"{cost:.1f} points of international legitimacy"
+            ),
+            detail={"cost": round(cost, 2), "distress": round(region.civilian_distress, 1)},
+        )
+
+    for region in draft.regions.values():
+        if region.population <= 0 or not region.owner:
+            continue
+        if region.owner not in draft.actors:
+            continue
+        cost = SUPPORT_COST_PER_DISTRESS * region.civilian_distress
+        if cost > 0:
+            draft.bump(region.owner, "domestic_support", -cost)
