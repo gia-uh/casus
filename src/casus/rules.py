@@ -109,6 +109,17 @@ IRREGULAR_TERRAIN_BONUS = 1.4
 #: Deterministic jitter applied to each exchange, as a fraction.
 COMBAT_JITTER = 0.10
 
+# --- fog of war -------------------------------------------------------------
+
+#: Largest relative error in an actor's view of another actor's forces, at ISR
+#: zero. Scaled by `1 - isr`, so a well-informed actor sees nearly the truth.
+MAX_VIEW_NOISE = 0.35
+
+#: Noise magnitude is drawn from this fraction of the maximum upward, never from
+#: zero. A perturbation that can come out as exactly zero would occasionally
+#: hand a blind actor the true number and make the fog test flaky.
+MIN_NOISE_FRACTION = 0.5
+
 #: Legal range for an action's intensity. A model will ask for 10, or 1000;
 #: clamping happens once, at the edge, so every rule downstream sees the same
 #: number. Clamping in one rule and not another let an absurd intensity bankrupt
@@ -535,6 +546,51 @@ def _damage_infrastructure(action: Action, region: RegionState, draft: _Draft) -
     draft.regions[region.id] = dataclasses.replace(
         region, infrastructure=max(0.0, region.infrastructure - damage)
     )
+
+
+# --- fog of war -------------------------------------------------------------
+
+
+def legal_action_types(state: WorldState, actor: str) -> tuple[str, ...]:
+    """The action types this actor could legally declare right now.
+
+    Players are shown only these. Offering an action the resolver will reject
+    wastes a turn and teaches the model that its declarations are decorative.
+    """
+    allowed = []
+    for action_type in sorted(ACTION_TYPES):
+        needed = DELIVERY_KINDS.get(action_type)
+        if needed is not None and not [f for f in state.forces_of(actor) if f.kind in needed]:
+            continue
+        if action_type == "supply" and state.actors[actor].fuel_days < (
+            SUPPLY_TRANSFER + SUPPLY_RESERVE
+        ):
+            continue
+        allowed.append(action_type)
+    return tuple(allowed)
+
+
+def perturb_view(state: WorldState, actor: str, rng: random.Random) -> WorldState:
+    """What `actor` believes the world looks like.
+
+    Own forces are exact. Everyone else's strength is scaled by a deterministic
+    error whose size grows as ISR falls. The point is not realism for its own
+    sake: a player reasoning confidently from wrong numbers is one of the things
+    the harness exists to show.
+    """
+    isr = max(0.0, min(1.0, state.actors[actor].isr))
+    spread = MAX_VIEW_NOISE * (1.0 - isr)
+    seen = []
+    for force in state.forces:
+        if force.owner == actor or spread == 0.0:
+            seen.append(force)
+            continue
+        sign = 1.0 if rng.random() < 0.5 else -1.0
+        error = sign * spread * rng.uniform(MIN_NOISE_FRACTION, 1.0)
+        seen.append(
+            dataclasses.replace(force, strength=max(0.0, force.strength * (1.0 + error)))
+        )
+    return dataclasses.replace(state, forces=tuple(seen))
 
 
 # --- consequences -----------------------------------------------------------
