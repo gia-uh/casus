@@ -6,6 +6,7 @@ import argparse
 import pathlib
 import sys
 
+from . import bundle as bundle_mod
 from . import engine, narrator
 from .scenario import Scenario, ScenarioError
 
@@ -35,10 +36,16 @@ def main(argv: list[str] | None = None) -> int:
     verify_cmd = sub.add_parser("verify", help="replay and assert every state matches")
     verify_cmd.add_argument("transcript")
 
+    bundle_cmd = sub.add_parser("bundle", help="write a self-contained HTML replayer")
+    bundle_cmd.add_argument("transcript")
+    bundle_cmd.add_argument("--out", default=None)
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
         return _run(args)
+    if args.command == "bundle":
+        return _bundle(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -74,6 +81,20 @@ def _run(args) -> int:
             f"  {actor_id}: rung {actor.escalation_rung}, fuel {actor.fuel_days:.0f}d, "
             f"legitimacy {actor.intl_legitimacy:.0f}, support {actor.domestic_support:.0f}"
         )
+    return 0
+
+
+def _bundle(args) -> int:
+    source = pathlib.Path(args.transcript)
+    out = pathlib.Path(args.out) if args.out else source.with_suffix(".html")
+    try:
+        written = bundle_mod.bundle(source, out)
+    except (bundle_mod.BundleError, OSError) as exc:
+        print(f"casus: {exc}", file=sys.stderr)
+        return 2
+    size = written.stat().st_size
+    print(f"casus: wrote {written} — {size / 1024:.0f} KiB, self-contained")
+    print("casus: open it in a browser and step the turns with the arrow keys")
     return 0
 
 

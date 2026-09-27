@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>casus — replay</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+html,body{
+  width:100%;height:100%;
+  background:#0d1117;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+}
+
+#deck{
+  width:min(100vw,177.78vh);
+  aspect-ratio:16/9;
+  position:relative;overflow:hidden;
+  background:#0d1117;container-type:size;color:#e6edf3;
+  padding:2.2cqw 2.6cqw 1.6cqw;
+  display:flex;flex-direction:column;gap:1.1cqw;
+}
+
+/* colour per actor, assigned in order */
+.c0{--ac:#4fc3f7}.c1{--ac:#f48fb1}.c2{--ac:#ffb74d}.c3{--ac:#ce93d8}.c4{--ac:#81c784}
+
+header{display:flex;align-items:baseline;gap:1.4cqw;flex:0 0 auto}
+h1{font-size:1.9cqw;font-weight:800;letter-spacing:-.01em}
+.lbl{font-size:.82cqw;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#7d8590}
+.day{font-size:1.15cqw;font-weight:700;color:#4fc3f7}
+.spacer{flex:1}
+.hint{font-size:.72cqw;color:#5a626c}
+
+main{flex:1;display:grid;grid-template-columns:1.32fr 1fr;gap:1.5cqw;min-height:0}
+.col{display:flex;flex-direction:column;gap:1cqw;min-height:0}
+
+.panel{
+  background:#11161d;border:1px solid #1f2731;border-radius:.55cqw;
+  padding:.85cqw 1cqw;min-height:0;display:flex;flex-direction:column;
+}
+.panel > .lbl{margin-bottom:.55cqw}
+
+/* ---- map ---- */
+#mapwrap{flex:1;min-height:0;position:relative}
+svg{width:100%;height:100%;display:block}
+.land{fill:#1b222c;stroke:#2a3441;stroke-width:.35}
+.land.own0{fill:#14384a}.land.own1{fill:#4a2233}
+.zone{fill:none;stroke:#2f3b49;stroke-width:.4;stroke-dasharray:1.6 1.6}
+.marker{stroke:#0d1117;stroke-width:.5}
+.ring{fill:none;stroke-width:.7;opacity:.85}
+.rname{fill:#9aa4b0;font-weight:700;paint-order:stroke;stroke:#0d1117;stroke-width:.35}
+.inset{fill:#141a22;stroke:#2a3441;stroke-width:.6}
+
+/* ---- escalation chart ---- */
+#esc{height:10.5cqw;flex:0 0 auto}
+.gridline{stroke:#1f2731;stroke-width:.5}
+.rungtick{font-size:5.4px;fill:#6b7480;font-weight:600}
+.escline{fill:none;stroke-width:1.9;stroke-linejoin:round;stroke-linecap:round}
+.escdot{stroke:#0d1117;stroke-width:.6}
+
+/* ---- bars ---- */
+.actor{display:flex;flex-direction:column;gap:.18cqw;margin-bottom:.5cqw}
+.arow{display:flex;align-items:center;gap:.5cqw}
+.aname{font-size:.85cqw;font-weight:700;color:var(--ac);width:9cqw;flex:0 0 auto}
+.rung{font-size:.7cqw;color:#8b949e}
+.bars{display:flex;gap:.35cqw;flex:1}
+.bar{flex:1;height:.52cqw;background:#1b222c;border-radius:.26cqw;overflow:hidden;position:relative}
+.bar i{display:block;height:100%;background:var(--ac);opacity:.8}
+.bar.fuel i{background:#ffb74d}
+.bar.leg i{background:#81c784}
+.bar.sup i{background:#4fc3f7}
+.barkey{font-size:.62cqw;color:#5a626c;display:flex;gap:.35cqw;margin-top:.1cqw}
+.barkey span{flex:1}
+
+/* ---- log ---- */
+#log{flex:1;overflow-y:auto;font-size:.78cqw;line-height:1.5}
+#log::-webkit-scrollbar{width:.3cqw}
+#log::-webkit-scrollbar-thumb{background:#2a3441;border-radius:.15cqw}
+.entry{margin-bottom:.55cqw;padding-left:.6cqw;border-left:.16cqw solid var(--ac)}
+.entry b{color:var(--ac);font-weight:700}
+.entry .act{color:#e6edf3;font-weight:600}
+.entry .why{color:#8b949e;display:block;margin-top:.1cqw}
+.res{font-size:.72cqw;color:#7d8590;margin-bottom:.25cqw}
+.res.hard{color:#f48fb1}
+.res.soft{color:#81c784}
+.tick{font-size:.8cqw;line-height:1.55;color:#c9d1d9;font-style:italic}
+
+/* ---- prompt drawer ---- */
+#drawer{
+  position:absolute;inset:0;background:rgba(6,9,13,.97);
+  padding:2.4cqw 3cqw;display:none;flex-direction:column;gap:.8cqw;z-index:10;
+}
+#drawer.open{display:flex}
+#drawer h2{font-size:1.3cqw;font-weight:800}
+#drawer .sel{display:flex;gap:.6cqw;flex-wrap:wrap}
+#drawer button{
+  background:#1b222c;border:1px solid #2a3441;color:#8b949e;
+  font-size:.75cqw;font-weight:700;padding:.3cqw .7cqw;border-radius:.3cqw;cursor:pointer;
+  font-family:inherit;
+}
+#drawer button.on{background:#14384a;border-color:#4fc3f7;color:#e6edf3}
+#promptbody{
+  flex:1;overflow-y:auto;white-space:pre-wrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.68cqw;line-height:1.55;color:#c9d1d9;
+  background:#0b0f14;border:1px solid #1f2731;border-radius:.4cqw;padding:1cqw;
+}
+#promptbody::-webkit-scrollbar{width:.3cqw}
+#promptbody::-webkit-scrollbar-thumb{background:#2a3441;border-radius:.15cqw}
+
+footer{flex:0 0 auto;display:flex;align-items:center;gap:1cqw;font-size:.72cqw;color:#5a626c}
+#progress{flex:1;height:.22cqw;background:#1b222c;border-radius:.11cqw;overflow:hidden}
+#progress i{display:block;height:100%;background:#4fc3f7;width:0}
+</style>
+</head>
+<body>
+<div id="deck">
+  <header>
+    <span class="lbl">casus</span>
+    <h1 id="title">—</h1>
+    <span class="day" id="day">DAY 0</span>
+    <span class="spacer"></span>
+    <span class="hint">← → turn · P prompts · Esc close</span>
+  </header>
+
+  <main>
+    <div class="col">
+      <div class="panel" style="flex:1">
+        <span class="lbl">Theatre</span>
+        <div id="mapwrap"><svg id="map" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet"></svg></div>
+      </div>
+      <div class="panel" id="escpanel">
+        <span class="lbl">Escalation ladder — highest rung reached</span>
+        <svg id="esc" viewBox="0 0 400 100" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <span class="lbl">Standing — fuel · legitimacy · domestic support</span>
+        <div id="actors"></div>
+      </div>
+      <div class="panel" style="flex:1">
+        <span class="lbl">What was declared, and why</span>
+        <div id="log"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span id="counter">turn 0 / 0</span>
+    <div id="progress"><i></i></div>
+    <span id="tokens"></span>
+  </footer>
+
+  <div id="drawer">
+    <h2>What the model actually saw</h2>
+    <div class="sel" id="drawersel"></div>
+    <div id="promptbody"></div>
+  </div>
+</div>
+
+<script id="casus-data" type="application/json">__CASUS_DATA__</script>
+<script id="casus-worldmap" type="application/json">__CASUS_WORLDMAP__</script>
+<script>
+const RECORDS = JSON.parse(document.getElementById('casus-data').textContent);
+const WORLD = JSON.parse(document.getElementById('casus-worldmap').textContent);
+
+const RUNGS = ['rhetoric','economic','show of force','interdiction',
+               'covert / cyber','limited strikes','air campaign','ground invasion'];
+
+/* resolution kinds worth colouring: the ones an audience should not miss */
+const HARD = new Set(['exchange','air_defence_suppressed','insufficient_occupation_force',
+                      'fuel_exhausted','insurgency_formed','unopposed']);
+const SOFT = new Set(['supply_delivered','mobilized','legitimacy_cost','air_defence_degraded']);
+
+const header = RECORDS.find(r => r.kind === 'scenario') || {};
+const scenario = header.scenario || {};
+const endRec = RECORDS.find(r => r.kind === 'end') || {};
+
+const states = RECORDS.filter(r => r.kind === 'state').sort((a,b) => a.turn - b.turn);
+
+/* Turns the audience can step through are the ones where somebody declared
+   something. State N is the world BEFORE turn N resolves, so the panel for a
+   turn shows state N+1 — what the declarations actually did. Showing state N
+   instead left the last frame reading "nothing was declared this turn" over a
+   final position nobody had acted on. */
+const actionTurns = [...new Set(RECORDS.filter(r => r.kind === 'action').map(r => r.turn))]
+  .sort((a,b) => a - b);
+const outcomeOf = t => states.find(s => s.turn === t + 1) || states.find(s => s.turn === t);
+
+const byTurn = t => ({
+  state: outcomeOf(t),
+  actions: RECORDS.filter(r => r.kind === 'action' && r.turn === t),
+  resolutions: RECORDS.filter(r => r.kind === 'resolution' && r.turn === t).map(r => r.resolution),
+  narrative: (RECORDS.find(r => r.kind === 'narrative' && r.turn === t) || {}).text || '',
+  prompts: RECORDS.filter(r => r.kind === 'prompt' && r.turn === t),
+});
+
+const actorIds = Object.keys(scenario.actors || {}).sort();
+const colourOf = id => 'c' + (actorIds.indexOf(id) % 5);
+const nameOf = id => ((scenario.actors || {})[id] || {}).name || id;
+
+/* projection: identical two lines to tools/build_worldmap.py, so a centroid
+   in the scenario lands where the coastline is */
+const W = WORLD.projection.width, H = WORLD.projection.height;
+const px = lon => (lon + 180) / 360 * W;
+const py = lat => (90 - lat) / 180 * H;
+
+let turn = actionTurns.length ? actionTurns[0] : (states[0] || {turn:1}).turn;
+const minTurn = turn;
+const maxTurn = actionTurns.length ? actionTurns[actionTurns.length - 1] : turn;
+let drawerActor = null;
+
+/* ---------- map ---------- */
+function regionBox() {
+  const regions = Object.values((states[0] && states[0].state.regions) || {});
+  if (!regions.length) return {x:0,y:0,w:W,h:H};
+  const xs = regions.map(r => px(r.centroid[1])), ys = regions.map(r => py(r.centroid[0]));
+  const pad = 9;
+  const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad;
+  const y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+  /* widen to 2:1 so the theatre fills the panel without distortion */
+  let w = x1 - x0, h = y1 - y0;
+  if (w / h < 2) { const need = h * 2; x0_ = x0 - (need - w) / 2; w = need; return {x:x0_,y:y0,w,h}; }
+  return {x:x0, y:y0, w, h:w/2};
+}
+const BOX = regionBox();
+/* One S is one percent of the theatre's width. Every radius, stroke and font in
+   the map is expressed in S: the viewBox is a crop of a 1000x500 world, so a
+   size in absolute user units that looks right at world scale covers the island
+   at theatre scale. The first render made exactly that mistake. */
+const S = BOX.w / 100;
+
+function drawMap(snap) {
+  const svg = document.getElementById('map');
+  svg.setAttribute('viewBox', `${BOX.x} ${BOX.y} ${BOX.w} ${BOX.h}`);
+  const regions = Object.values(snap.regions);
+  const owners = {};
+  regions.forEach(r => { if (r.country) owners[r.country] = r.owner; });
+
+  let out = '';
+  for (const [iso, path] of Object.entries(WORLD.countries)) {
+    const cls = iso in owners ? ` own${actorIds.indexOf(owners[iso]) % 2}` : '';
+    out += `<path class="land${cls}" d="${path}" stroke-width="${(0.14 * S).toFixed(3)}"/>`;
+  }
+
+  /* sea zones as dashed circles, so an audience sees where a fleet can sit */
+  regions.filter(r => r.terrain === 'sea').forEach(r => {
+    out += `<circle class="zone" cx="${px(r.centroid[1])}" cy="${py(r.centroid[0])}" `
+         + `r="${(5 * S).toFixed(2)}" stroke-width="${(0.35 * S).toFixed(2)}" `
+         + `stroke-dasharray="${(1.2 * S).toFixed(2)} ${(1.2 * S).toFixed(2)}"/>`;
+  });
+
+  const strengthIn = id => snap.forces.filter(f => f.region === id)
+                                      .reduce((s,f) => s + f.strength, 0);
+  regions.forEach(r => {
+    const x = px(r.centroid[1]), y = py(r.centroid[0]);
+    const total = strengthIn(r.id);
+    const radius = (0.9 + Math.sqrt(Math.max(total, 0)) * 0.33) * S;
+    const ac = r.owner ? `var(--ac)` : '#5a626c';
+    const cls = r.owner ? colourOf(r.owner) : '';
+    out += `<g class="${cls}">`;
+    if (r.population > 0) {
+      /* distress ring: the civilian cost, drawn where the audience is looking */
+      const d = Math.max(0, Math.min(100, r.civilian_distress)) / 100;
+      const rr = radius + 1.1 * S;
+      const circ = 2 * Math.PI * rr;
+      out += `<circle class="ring" cx="${x}" cy="${y}" r="${rr.toFixed(2)}" `
+           + `stroke="#f48fb1" stroke-width="${(0.45 * S).toFixed(2)}" `
+           + `stroke-dasharray="${(d * circ).toFixed(2)} ${circ.toFixed(2)}" `
+           + `opacity="${0.3 + d * 0.6}"/>`;
+    }
+    out += `<circle class="marker" cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${ac}" `
+         + `stroke-width="${(0.3 * S).toFixed(2)}"/>`;
+    out += `<text class="rname" x="${(x + radius + 0.9 * S).toFixed(2)}" y="${(y + 0.8 * S).toFixed(2)}" `
+         + `font-size="${(2.4 * S).toFixed(2)}">${r.name}</text>`;
+    out += `</g>`;
+  });
+  svg.innerHTML = out;
+}
+
+/* ---------- escalation chart ---------- */
+function drawEscalation(upTo) {
+  /* plotted against the outcome states, so the line moves on the turn the
+     action was taken rather than one turn late */
+  const svg = document.getElementById('esc');
+  const w = 400, h = 100, left = 62, right = 6, top = 7, bottom = 8;
+  const turns = states.map(s => s.turn);
+  const xOf = t => left + (turns.length < 2 ? 0 :
+    (t - turns[0]) / (turns[turns.length-1] - turns[0]) * (w - left - right));
+  void minTurn;
+  const yOf = rung => top + (7 - rung) / 7 * (h - top - bottom);
+
+  let out = '';
+  for (let r = 0; r <= 7; r++) {
+    out += `<line class="gridline" x1="${left}" y1="${yOf(r)}" x2="${w-right}" y2="${yOf(r)}"/>`;
+    out += `<text class="rungtick" x="0" y="${yOf(r)+2}">${r} ${RUNGS[r]}</text>`;
+  }
+  actorIds.forEach(id => {
+    const pts = states.filter(s => s.turn <= upTo + 1)
+      .map(s => `${xOf(s.turn)},${yOf((s.state.actors[id]||{}).escalation_rung || 0)}`);
+    if (!pts.length) return;
+    const cls = colourOf(id);
+    out += `<g class="${cls}"><polyline class="escline" stroke="var(--ac)" points="${pts.join(' ')}"/>`;
+    const last = pts[pts.length-1].split(',');
+    out += `<circle class="escdot" cx="${last[0]}" cy="${last[1]}" r="2" fill="var(--ac)"/></g>`;
+  });
+  svg.innerHTML = out;
+}
+
+/* ---------- panels ---------- */
+function drawActors(snap) {
+  document.getElementById('actors').innerHTML = actorIds.map(id => {
+    const a = snap.actors[id]; if (!a) return '';
+    const fuel = Math.max(0, Math.min(100, a.fuel_days / 3));
+    return `<div class="actor ${colourOf(id)}">
+      <div class="arow">
+        <span class="aname">${a.name}</span>
+        <span class="rung">${a.escalation_rung} · ${RUNGS[a.escalation_rung]}</span>
+      </div>
+      <div class="arow">
+        <span class="aname" style="visibility:hidden">${a.name}</span>
+        <div class="bars">
+          <div class="bar fuel" title="fuel-days"><i style="width:${fuel}%"></i></div>
+          <div class="bar leg" title="international legitimacy"><i style="width:${a.intl_legitimacy}%"></i></div>
+          <div class="bar sup" title="domestic support"><i style="width:${a.domestic_support}%"></i></div>
+        </div>
+      </div>
+      <div class="barkey"><span style="width:9cqw;flex:0 0 auto"></span>
+        <span>${a.fuel_days.toFixed(0)}d fuel</span>
+        <span>${a.intl_legitimacy.toFixed(0)} legitimacy</span>
+        <span>${a.domestic_support.toFixed(0)} support</span></div>
+    </div>`;
+  }).join('');
+}
+
+function drawLog(frame) {
+  const parts = [];
+  if (frame.narrative) parts.push(`<div class="tick">${frame.narrative}</div>`);
+
+  const seen = new Set();
+  frame.actions.forEach(a => {
+    const act = a.action;
+    const where = act.region ? ` → ${act.region}` : '';
+    const key = a.actor + act.type + (act.region || '');
+    const why = seen.has(a.actor) ? '' : `<span class="why">${a.rationale || ''}</span>`;
+    seen.add(a.actor);
+    if (!key) return;
+    parts.push(`<div class="entry ${colourOf(a.actor)}">
+      <b>${nameOf(a.actor)}</b> <span class="act">${act.type}${where}</span>
+      ${act.intensity > 1 ? `<span class="rung"> ·intensity ${act.intensity}</span>` : ''}
+      ${why}</div>`);
+  });
+
+  frame.resolutions.forEach(r => {
+    const cls = HARD.has(r.kind) ? 'hard' : (SOFT.has(r.kind) ? 'soft' : '');
+    parts.push(`<div class="res ${cls}">${r.kind}${r.region ? ' ['+r.region+']' : ''} — ${r.reason}</div>`);
+  });
+
+  document.getElementById('log').innerHTML = parts.join('') ||
+    '<div class="res">nothing was declared this turn</div>';
+}
+
+function drawDrawer(frame) {
+  const prompts = frame.prompts;
+  if (!prompts.length) {
+    document.getElementById('drawersel').innerHTML = '';
+    document.getElementById('promptbody').textContent = 'no prompts recorded for this turn';
+    return;
+  }
+  if (!prompts.some(p => p.actor === drawerActor)) drawerActor = prompts[0].actor;
+  document.getElementById('drawersel').innerHTML = [...new Set(prompts.map(p => p.actor))]
+    .map(a => `<button data-actor="${a}" class="${a === drawerActor ? 'on' : ''}">${nameOf(a)}</button>`)
+    .join('');
+  const mine = prompts.filter(p => p.actor === drawerActor);
+  document.getElementById('promptbody').textContent = mine
+    .map((p, i) => (mine.length > 1 ? `── attempt ${i+1} ──\n` : '') +
+                   p.messages.map(m => `[${m.role}]\n${m.content}`).join('\n\n'))
+    .join('\n\n');
+  document.querySelectorAll('#drawersel button').forEach(b =>
+    b.onclick = () => { drawerActor = b.dataset.actor; drawDrawer(frame); });
+}
+
+function render() {
+  const frame = byTurn(turn);
+  if (!frame.state) return;
+  const snap = frame.state.state;
+  document.getElementById('title').textContent = header.name || 'run';
+  document.getElementById('day').textContent = 'DAY ' + turn;
+  document.getElementById('counter').textContent = `turn ${turn} / ${maxTurn}`;
+  document.getElementById('progress').firstElementChild.style.width =
+    (maxTurn > minTurn ? (turn - minTurn) / (maxTurn - minTurn) * 100 : 100) + '%';
+  document.getElementById('tokens').textContent = endRec.prompt_tokens
+    ? `${endRec.prompt_tokens.toLocaleString()} in / ${endRec.completion_tokens.toLocaleString()} out · `
+      + `${endRec.schema_failures} schema failures`
+    : '';
+  drawMap(snap);
+  drawEscalation(turn);
+  drawActors(snap);
+  drawLog(frame);
+  if (document.getElementById('drawer').classList.contains('open')) drawDrawer(frame);
+}
+
+document.addEventListener('keydown', e => {
+  const drawer = document.getElementById('drawer');
+  if (e.key === 'Escape') { drawer.classList.remove('open'); return; }
+  if (e.key === 'p' || e.key === 'P') {
+    drawer.classList.toggle('open');
+    if (drawer.classList.contains('open')) drawDrawer(byTurn(turn));
+    return;
+  }
+  if (e.key === 'ArrowRight' || e.key === ' ') { turn = Math.min(maxTurn, turn + 1); render(); }
+  if (e.key === 'ArrowLeft') { turn = Math.max(minTurn, turn - 1); render(); }
+});
+
+render();
+</script>
+</body>
+</html>
