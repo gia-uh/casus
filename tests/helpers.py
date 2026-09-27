@@ -66,9 +66,9 @@ def make_world(
     turn: int = 1,
     relations: dict[str, int] | None = None,
 ) -> WorldState:
-    actors = actors or {"US": make_actor("US"), "CU": make_actor("CU")}
+    actors = actors or {"ATK": make_actor("ATK"), "DEF": make_actor("DEF")}
     regions = regions or {
-        "r1": make_region("r1", "CU"),
+        "r1": make_region("r1", "DEF"),
         "sea-1": make_region("sea-1", "", terrain="sea", population=0),
     }
     return WorldState(
@@ -76,5 +76,5 @@ def make_world(
         actors=actors,
         regions=regions,
         forces=forces,
-        relations=relations or {"US>CU": -60, "CU>US": -60},
+        relations=relations or {"ATK>DEF": -60, "DEF>ATK": -60},
     )

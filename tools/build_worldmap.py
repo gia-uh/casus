@@ -27,9 +27,9 @@ sys.setrecursionlimit(50_000)
 WIDTH, HEIGHT = 1000.0, 500.0
 
 #: Douglas-Peucker tolerance in degrees. At 110m source resolution this keeps
-#: Cuba recognisable while cutting the payload to something a single HTML file
-#: can carry comfortably.
-TOLERANCE = 0.12
+#: small islands recognisable while cutting the payload to something a single
+#: HTML file can carry comfortably.
+TOLERANCE = 0.045
 
 #: Rings smaller than this in projected area are dropped: at world scale they are
 #: sub-pixel specks that cost bytes and render as dirt.
@@ -84,9 +84,7 @@ def rings_of(geometry: dict) -> list[list[tuple[float, float]]]:
         return [[(x, y) for x, y in ring] for ring in geometry["coordinates"]]
     if kind == "MultiPolygon":
         return [
-            [(x, y) for x, y in ring]
-            for polygon in geometry["coordinates"]
-            for ring in polygon
+            [(x, y) for x, y in ring] for polygon in geometry["coordinates"] for ring in polygon
         ]
     return []
 
@@ -140,7 +138,8 @@ def main() -> int:
     out.write_text(json.dumps(payload, separators=(",", ":")))
     size = out.stat().st_size
     print(f"wrote {out} — {len(countries)} countries, {size / 1024:.0f} KiB")
-    print(f"Cuba path length: {len(countries.get('CU', ''))} chars")
+    smallest = min((len(p), i) for i, p in countries.items())
+    print(f"shortest outline: {smallest[1]} at {smallest[0]} chars")
     return 0
 
 

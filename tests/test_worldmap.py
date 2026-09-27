@@ -23,12 +23,14 @@ def test_worldmap_covers_every_country_the_scenarios_reference():
             assert iso in worldmap["countries"], f"{path.name}: {iso} is not in worldmap.json"
 
 
-def test_cubas_outline_survived_simplification():
+def test_small_islands_survive_simplification():
     """A tolerance high enough to shrink the payload can also flatten a small
-    island into a triangle. This is the island the class is looking at."""
-    path = _worldmap()["countries"]["CU"]
-    assert len(path) > 200, "Cuba's path is suspiciously short"
-    assert path.count("L") > 12, "Cuba simplified down to a handful of vertices"
+    island into a triangle, and small islands are what a maritime theatre is made
+    of. Iceland is the check: recognisable, and not large enough to pass by
+    accident."""
+    path = _worldmap()["countries"]["IS"]
+    assert len(path) > 180, "Iceland's path is suspiciously short"
+    assert path.count("L") > 12, "Iceland simplified down to a handful of vertices"
 
 
 def test_the_projection_is_declared_so_the_replayer_can_place_markers():

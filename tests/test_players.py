@@ -40,7 +40,7 @@ def _capture(
     return call
 
 
-def _player(actor_id="CU", briefing="You are Cuba.") -> Player:
+def _player(actor_id="DEF", briefing="You are the defender.") -> Player:
     return Player(actor_id=actor_id, briefing=briefing, model="qwen/qwen3-32b")
 
 
@@ -60,7 +60,7 @@ def test_prose_response_retries_once_then_falls_back_to_hold():
     assert "valid JSON" in calls[1][-1]["content"]
     assert [a.type for a in turn.actions] == ["hold"]
     assert turn.schema_failures == 2
-    assert turn.actions[0].actor == "CU"
+    assert turn.actions[0].actor == "DEF"
 
 
 def test_the_retry_quotes_the_actual_validation_error_back():
@@ -101,8 +101,8 @@ def test_decide_never_raises_even_on_an_empty_completion():
 
 def test_prompt_shows_perturbed_enemy_strength_for_a_low_isr_actor():
     world = make_world(
-        actors={"US": make_actor("US"), "CU": make_actor("CU", isr=0.1)},
-        forces=(make_force("US", "naval", region="sea-1", strength=80.0),),
+        actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF", isr=0.1)},
+        forces=(make_force("ATK", "naval", region="sea-1", strength=80.0),),
     )
     seen: dict = {}
     _player().decide(world, random.Random(5), call=_capture(seen))
@@ -114,43 +114,43 @@ def test_prompt_shows_perturbed_enemy_strength_for_a_low_isr_actor():
 def test_a_high_isr_actor_sees_a_number_close_to_the_truth():
     def seen_strength(isr):
         world = make_world(
-            actors={"US": make_actor("US"), "CU": make_actor("CU", isr=isr)},
-            forces=(make_force("US", "naval", region="sea-1", strength=80.0),),
+            actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF", isr=isr)},
+            forces=(make_force("ATK", "naval", region="sea-1", strength=80.0),),
         )
-        view = rules.perturb_view(world, "CU", random.Random(5))
-        return next(f.strength for f in view.forces if f.owner == "US")
+        view = rules.perturb_view(world, "DEF", random.Random(5))
+        return next(f.strength for f in view.forces if f.owner == "ATK")
 
     assert abs(seen_strength(0.95) - 80.0) < abs(seen_strength(0.1) - 80.0)
 
 
 def test_an_actor_sees_its_own_forces_exactly():
     world = make_world(
-        actors={"US": make_actor("US"), "CU": make_actor("CU", isr=0.0)},
-        forces=(make_force("CU", "ground", region="r1", strength=37.0),),
+        actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF", isr=0.0)},
+        forces=(make_force("DEF", "ground", region="r1", strength=37.0),),
     )
-    view = rules.perturb_view(world, "CU", random.Random(3))
-    assert next(f.strength for f in view.forces if f.owner == "CU") == 37.0
+    view = rules.perturb_view(world, "DEF", random.Random(3))
+    assert next(f.strength for f in view.forces if f.owner == "DEF") == 37.0
 
 
 def test_perturbation_is_never_zero_when_isr_is_imperfect():
     """A perturbation that can come out as exactly zero hands a blind actor the
     truth at random, which would make the fog tests flaky rather than wrong."""
     world = make_world(
-        actors={"US": make_actor("US"), "CU": make_actor("CU", isr=0.3)},
-        forces=(make_force("US", "naval", region="sea-1", strength=80.0),),
+        actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF", isr=0.3)},
+        forces=(make_force("ATK", "naval", region="sea-1", strength=80.0),),
     )
     for seed in range(50):
-        view = rules.perturb_view(world, "CU", random.Random(seed))
-        assert next(f.strength for f in view.forces if f.owner == "US") != 80.0
+        view = rules.perturb_view(world, "DEF", random.Random(seed))
+        assert next(f.strength for f in view.forces if f.owner == "ATK") != 80.0
 
 
 def test_perturbation_is_exact_at_perfect_isr():
     world = make_world(
-        actors={"US": make_actor("US"), "CU": make_actor("CU", isr=1.0)},
-        forces=(make_force("US", "naval", region="sea-1", strength=80.0),),
+        actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF", isr=1.0)},
+        forces=(make_force("ATK", "naval", region="sea-1", strength=80.0),),
     )
-    view = rules.perturb_view(world, "CU", random.Random(1))
-    assert next(f.strength for f in view.forces if f.owner == "US") == 80.0
+    view = rules.perturb_view(world, "DEF", random.Random(1))
+    assert next(f.strength for f in view.forces if f.owner == "ATK") == 80.0
 
 
 # --- entitlement ------------------------------------------------------------
@@ -167,14 +167,16 @@ def test_legal_action_list_in_the_prompt_excludes_types_the_actor_cannot_take():
 
 
 def test_owning_ground_forces_puts_invade_on_the_list():
-    world = make_world(forces=(make_force("CU", "ground", region="r1"),))
-    assert "invade" in rules.legal_action_types(world, "CU")
-    assert "air_campaign" not in rules.legal_action_types(world, "CU")
+    world = make_world(forces=(make_force("DEF", "ground", region="r1"),))
+    assert "invade" in rules.legal_action_types(world, "DEF")
+    assert "air_campaign" not in rules.legal_action_types(world, "DEF")
 
 
 def test_supply_is_offered_only_to_an_actor_that_can_afford_it():
-    rich = make_world(actors={"RU": make_actor("RU", fuel_days=500.0), "CU": make_actor("CU")})
-    poor = make_world(actors={"RU": make_actor("RU", fuel_days=5.0), "CU": make_actor("CU")})
+    rich = make_world(
+        actors={"RU": make_actor("RU", fuel_days=500.0), "DEF": make_actor("DEF")}
+    )
+    poor = make_world(actors={"RU": make_actor("RU", fuel_days=5.0), "DEF": make_actor("DEF")})
     assert "supply" in rules.legal_action_types(rich, "RU")
     assert "supply" not in rules.legal_action_types(poor, "RU")
 
@@ -182,7 +184,7 @@ def test_supply_is_offered_only_to_an_actor_that_can_afford_it():
 def test_an_action_outside_the_offered_list_is_a_schema_violation():
     legal = ("hold", "statement")
     with pytest.raises(SchemaViolation, match="not available to you"):
-        parse_declaration('{"actions":[{"type":"invade"}]}', "CU", legal)
+        parse_declaration('{"actions":[{"type":"invade"}]}', "DEF", legal)
 
 
 # --- prompt content ---------------------------------------------------------
@@ -198,7 +200,7 @@ def test_the_prompt_carries_the_briefing_verbatim():
 
 def test_the_prompt_reports_last_turns_resolutions():
     world = make_world()
-    resolved, _ = rules.resolve(world, [Action(actor="US", type="sanction")], random.Random(1))
+    resolved, _ = rules.resolve(world, [Action(actor="ATK", type="sanction")], random.Random(1))
     seen: dict = {}
     _player().decide(resolved, random.Random(1), call=_capture(seen))
     assert "WHAT HAPPENED LAST TURN" in seen["prompt"]
@@ -213,7 +215,7 @@ def test_the_schema_is_handed_to_the_backend():
 
 def test_exact_fuel_of_other_actors_is_banded_not_disclosed():
     world = make_world(
-        actors={"US": make_actor("US", fuel_days=123.0), "CU": make_actor("CU")},
+        actors={"ATK": make_actor("ATK", fuel_days=123.0), "DEF": make_actor("DEF")},
     )
     seen: dict = {}
     _player().decide(world, random.Random(1), call=_capture(seen))
@@ -231,25 +233,25 @@ def test_a_reasoning_block_before_the_answer_is_stripped():
         '{"actions":[{"type":"invade"}]} ... actually no.</think>'
         '{"actions":[{"type":"statement"}],"rationale":"r","assessment":"a"}'
     )
-    actions, _, _ = parse_declaration(text, "CU", ("hold", "statement"))
+    actions, _, _ = parse_declaration(text, "DEF", ("hold", "statement"))
     assert [a.type for a in actions] == ["statement"]
 
 
 def test_a_fenced_code_block_is_accepted():
     text = '```json\n{"actions":[{"type":"hold"}],"rationale":"r","assessment":"a"}\n```'
-    actions, _, _ = parse_declaration(text, "CU", ("hold",))
+    actions, _, _ = parse_declaration(text, "DEF", ("hold",))
     assert [a.type for a in actions] == ["hold"]
 
 
 def test_prose_around_the_json_is_tolerated():
     text = 'Here is my decision:\n{"actions":[{"type":"hold"}],"rationale":"r","assessment":"a"}\nThanks.'
-    actions, _, _ = parse_declaration(text, "CU", ("hold",))
+    actions, _, _ = parse_declaration(text, "DEF", ("hold",))
     assert [a.type for a in actions] == ["hold"]
 
 
 def test_the_last_json_object_wins_when_a_model_sends_drafts():
     text = '{"actions":[{"type":"statement"}]}\nOn reflection:\n{"actions":[{"type":"hold"}]}'
-    actions, _, _ = parse_declaration(text, "CU", ("hold", "statement"))
+    actions, _, _ = parse_declaration(text, "DEF", ("hold", "statement"))
     assert [a.type for a in actions] == ["hold"]
 
 
@@ -259,7 +261,7 @@ def test_extract_json_returns_none_when_there_is_nothing_to_find():
 
 def test_a_non_integer_intensity_degrades_to_one_instead_of_crashing():
     actions, _, _ = parse_declaration(
-        '{"actions":[{"type":"hold","intensity":"high"}]}', "CU", ("hold",)
+        '{"actions":[{"type":"hold","intensity":"high"}]}', "DEF", ("hold",)
     )
     assert actions[0].intensity == 1
 
@@ -267,22 +269,22 @@ def test_a_non_integer_intensity_degrades_to_one_instead_of_crashing():
 def test_too_many_actions_is_a_schema_violation():
     many = ",".join(['{"type":"hold"}'] * (MAX_ACTIONS_PER_TURN + 1))
     with pytest.raises(SchemaViolation, match="at most"):
-        parse_declaration(f'{{"actions":[{many}]}}', "CU", ("hold",))
+        parse_declaration(f'{{"actions":[{many}]}}', "DEF", ("hold",))
 
 
 def test_an_empty_action_array_is_a_schema_violation():
     with pytest.raises(SchemaViolation, match="non-empty"):
-        parse_declaration('{"actions":[]}', "CU", ("hold",))
+        parse_declaration('{"actions":[]}', "DEF", ("hold",))
 
 
 def test_a_json_array_at_the_top_level_is_a_schema_violation():
     with pytest.raises(SchemaViolation, match="expected a JSON object"):
-        parse_declaration('[{"type":"hold"}]', "CU", ("hold",))
+        parse_declaration('[{"type":"hold"}]', "DEF", ("hold",))
 
 
 def test_the_region_of_an_action_survives_parsing():
     actions, _, _ = parse_declaration(
-        '{"actions":[{"type":"strike","region":"r1","intensity":2}]}', "US", ("strike",)
+        '{"actions":[{"type":"strike","region":"r1","intensity":2}]}', "ATK", ("strike",)
     )
     assert actions[0].region == "r1"
     assert actions[0].intensity == 2
@@ -293,14 +295,14 @@ def test_an_unknown_region_is_left_for_the_resolver_to_reject():
     rejects an unknown region with a named reason, and the player learns from
     seeing that rejection next turn."""
     actions, _, _ = parse_declaration(
-        '{"actions":[{"type":"strike","region":"atlantis"}]}', "US", ("strike",)
+        '{"actions":[{"type":"strike","region":"atlantis"}]}', "ATK", ("strike",)
     )
     assert actions[0].region == "atlantis"
 
 
 def test_the_region_is_normalised_to_none_when_the_model_sends_an_empty_string():
     actions, _, _ = parse_declaration(
-        '{"actions":[{"type":"hold","region":""}]}', "CU", ("hold",)
+        '{"actions":[{"type":"hold","region":""}]}', "DEF", ("hold",)
     )
     assert actions[0].region is None
 
@@ -308,15 +310,15 @@ def test_the_region_is_normalised_to_none_when_the_model_sends_an_empty_string()
 def test_forces_must_be_an_array():
     with pytest.raises(SchemaViolation, match="'forces' must be an array"):
         parse_declaration(
-            '{"actions":[{"type":"hold","forces":"all of them"}]}', "CU", ("hold",)
+            '{"actions":[{"type":"hold","forces":"all of them"}]}', "DEF", ("hold",)
         )
 
 
 def test_a_region_identifier_appears_in_the_map_section():
-    world = make_world(regions={"cu-havana": make_region("cu-havana", "CU", name="Havana")})
+    world = make_world(regions={"capital": make_region("capital", "DEF", name="Capital")})
     seen: dict = {}
     _player().decide(world, random.Random(1), call=_capture(seen))
-    assert "cu-havana" in seen["prompt"].split("MAP")[1]
+    assert "capital" in seen["prompt"].split("MAP")[1]
 
 
 def test_the_prompt_states_which_regions_each_offensive_action_can_reach():
@@ -324,16 +326,16 @@ def test_the_prompt_states_which_regions_each_offensive_action_can_reach():
     campaign three turns running with the map in front of it."""
     world = make_world(
         regions={
-            "target": make_region("target", "CU", adjacency=("sea-1",)),
-            "far": make_region("far", "CU"),
+            "target": make_region("target", "DEF", adjacency=("sea-1",)),
+            "far": make_region("far", "DEF"),
             "sea-1": make_region(
                 "sea-1", "", terrain="sea", population=0, adjacency=("target",)
             ),
         },
-        forces=(make_force("US", "air", region="sea-1"),),
+        forces=(make_force("ATK", "air", region="sea-1"),),
     )
     seen: dict = {}
-    _player(actor_id="US", briefing="You are the US.").decide(
+    _player(actor_id="ATK", briefing="You are the US.").decide(
         world, random.Random(1), call=_capture(seen)
     )
     offered = seen["prompt"].split("ACTIONS AVAILABLE TO YOU THIS TURN")[1]
@@ -344,10 +346,10 @@ def test_the_prompt_states_which_regions_each_offensive_action_can_reach():
 def test_reach_says_nowhere_when_the_platform_is_isolated():
     world = make_world(
         regions={
-            "island": make_region("island", "CU"),
+            "island": make_region("island", "DEF"),
             "sea-1": make_region("sea-1", "", terrain="sea", population=0),
         },
-        forces=(make_force("US", "ground", region="sea-1"),),
+        forces=(make_force("ATK", "ground", region="sea-1"),),
     )
-    assert rules.reachable_regions(world, "US", "invade") == ("sea-1",)
-    assert rules.reachable_regions(world, "US", "air_campaign") == ()
+    assert rules.reachable_regions(world, "ATK", "invade") == ("sea-1",)
+    assert rules.reachable_regions(world, "ATK", "air_campaign") == ()

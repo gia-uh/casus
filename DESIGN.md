@@ -2,8 +2,8 @@
 
 ## Purpose
 
-A runnable artifact for a one-hour class to senior decision-makers on how modern
-AI is used for defence analysis, strategic simulation and wargaming. The harness
+A runnable artifact for teaching how modern AI is used in defence analysis,
+strategic simulation and wargaming. The harness
 has to do three jobs at once:
 
 1. **Teach the mechanism.** A viewer must be able to see exactly what each model
@@ -14,6 +14,9 @@ has to do three jobs at once:
 3. **Be reproducible by a student on a laptop.** Players are 27–32B-class models
    reachable over an OpenAI-compatible endpoint, so the same run works against
    OpenRouter, LM Studio or Ollama with one environment variable changed.
+
+Scenarios built for a particular class or study are not part of this repo. See
+`scenarios/README.md`.
 
 Python 3.12+, `uv`. Code, identifiers and docs in English.
 
@@ -143,17 +146,17 @@ Each of these is a named function with tests, and each is a slide:
 - **Air-defence suppression.** Sustained strikes degrade `air_defense` strength;
   below a threshold the attacker loses its attrition penalty and switches to
   cheap munitions. Calibrated so suppression takes four to five turns, matching
-  the publicly reported Iran campaign.
+  the opening phase of recent publicly reported air campaigns.
 - **Detection.** Seeded noise applied to each actor's view of every other, scaled
   by ISR. Deterministic given the seed.
 - **Civilian distress and legitimacy.** Distress rises with infrastructure damage
   and fuel deprivation. Distress costs the attacker `intl_legitimacy` and the
   defender `domestic_support`, on different curves.
 - **Occupation.** Holding a region needs one security member per fifty
-  inhabitants (the stability-operations rule of thumb CSIS applies to Cuba, from
-  *Parameters*). Short of that ratio, `control` decays every turn and irregular
-  forces regenerate. An invader that takes ground without the ratio watches the
-  number fall on screen.
+  inhabitants — the stability-operations rule of thumb from *Parameters*, the one
+  think-tank estimates of occupation force size are built on. Short of that
+  ratio, `control` decays every turn and irregular forces regenerate. An invader
+  that takes ground without the ratio watches the number fall on screen.
 
 ### `narrator.py`
 
@@ -188,8 +191,8 @@ house deck format (16:9, `cqw` units, dark, keyboard-driven). It loads a
 transcript and shows, per turn:
 
 - a **world map** in SVG (Natural Earth 110m, simplified once by a script into
-  `worldmap.json`) with actor colours, force markers on region centroids and a
-  Caribbean inset;
+  `worldmap.json`) with actor colours and force markers on region centroids,
+  cropped to the theatre the scenario describes;
 - the **escalation chart**, rung per actor over turns;
 - **resource bars** per actor;
 - the **action log** with each model's rationale in its own words;
@@ -206,15 +209,16 @@ So the artifact makes three claims, each mechanically checkable:
 1. **Reproducibility.** Same seed and same recorded responses reproduce the state
    trajectory exactly. Different seeds produce a spread that gets reported rather
    than hidden.
-2. **External branch agreement.** The five CSIS scenarios for Cuba — pressure
-   campaign, internal collapse, decapitation, limited air offensive, runaway
-   escalation — must emerge from initial conditions without being handed to the
-   models as input. Branches the engine cannot reach are a finding about the
-   engine, and get written down.
+2. **External branch agreement.** Where a published open-source analysis has
+   already enumerated the branches of a situation — a pressure campaign, an
+   internal collapse, a decapitation strike, a limited air offensive, a runaway
+   escalation — those branches must emerge from the initial conditions without
+   being handed to the models as input. A branch the engine cannot reach is a
+   finding about the engine, and gets written down rather than explained away.
 3. **Physical plausibility.** Quantities the engine emits sit inside the ranges
-   public sources give: occupation force at or above 100,000 for ten million
-   people, air-defence suppression in four to five turns, force counts for the
-   FAR at roughly 50,000 active and 39,000 reserve.
+   public sources give: an occupation force at or above one security member per
+   fifty inhabitants, air-defence suppression in four to five turns, force counts
+   within the published order of battle.
 
 ## Vertical slices
 
@@ -223,8 +227,8 @@ So the artifact makes three claims, each mechanically checkable:
    No map, no narrator, minimal rules (sustainment and attrition only).
 2. **VS2 — the deterministic core.** Full `rules.py` with tests, including the
    occupation ratio and air-defence suppression. Replay determinism test.
-3. **VS3 — scenarios as data.** YAML loader, the Caribbean 2026 scenario, actor
-   briefings, seeds for the five branches.
+3. **VS3 — scenarios as data.** YAML loader, a sourced scenario, actor briefings,
+   seeds for each branch.
 4. **VS4 — the replayer.** World map, escalation chart, prompt drawer.
 5. **VS5 — the runs.** Three recorded runs plus the analysis that goes in the deck.
 
@@ -233,5 +237,6 @@ So the artifact makes three claims, each mechanically checkable:
 No real-time operation, no connection to any live data feed, no targeting-level
 resolution: regions and force aggregates are the finest granularity, deliberately.
 The engine models whether a campaign is sustainable and what it costs, not how to
-conduct one. No classified or non-public source is used anywhere; every number in
-the Caribbean scenario traces to a citation in the dossier.
+conduct one. No classified or non-public source is used anywhere, and every
+numeric field in a scenario carries a `source:` key a reader can follow — a test
+fails when one does not.

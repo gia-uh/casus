@@ -68,10 +68,10 @@ ACTION_FUEL_SURCHARGE: dict[str, float] = {
 }
 
 #: Force strength one `mobilize` action calls up, drawn from the actor's reserve
-#: pool. CSIS puts an invasion of Cuba at 100,000 personnel taking months to
-#: assemble and visible long before it begins; at this rate and one point per
-#: thousand troops, that is a dozen consecutive turns of open mobilisation,
-#: which is the point.
+#: pool. Published think-tank estimates put an invasion of a ten-million-person
+#: country at around 100,000 personnel, months to assemble and visible long
+#: before it begins; at this rate and one point per thousand troops, that is a
+#: dozen consecutive turns of open mobilisation, which is the point.
 REINFORCEMENT_PER_MOBILIZE = 8.0
 
 #: Fuel-days one `supply` action transfers, and the floor the supplier must keep.
@@ -133,7 +133,7 @@ MIN_NOISE_FRACTION = 0.5
 #: attacker air power, per point of intensity. Calibrated so a 60-point battery
 #: under a sustained intensity-3 campaign by a 100-point air force falls below
 #: the floor on the fourth turn, matching the four-to-five days publicly
-#: reported for the opening of the 2026 Iran campaign.
+#: reported for the opening phase of recent air campaigns.
 SUPPRESSION_COEFFICIENT = 0.055
 
 #: Below this strength an air defence no longer imposes a penalty on strikes.
@@ -148,10 +148,11 @@ AIR_DEFENCE_PROTECTION = 0.9
 # --- occupation -------------------------------------------------------------
 
 #: One member of the security forces per this many inhabitants is the
-#: stability-operations rule of thumb. CSIS applies it to Cuba to arrive at an
-#: external force of about 100,000 for ten million people, assuming half the
-#: total comes from indigenous police. This function returns the TOTAL; how much
-#: of it is indigenous is a scenario question, not a rule.
+#: stability-operations rule of thumb, from *Parameters*. Applied to ten million
+#: people it gives 200,000 in total, which think-tank estimates halve to about
+#: 100,000 external on the assumption that indigenous police supply the rest.
+#: This function returns the TOTAL; how much of it is indigenous is a scenario
+#: question, not a rule.
 INHABITANTS_PER_SECURITY_MEMBER = 50
 
 #: Headcount one point of abstract force strength stands for.

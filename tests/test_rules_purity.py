@@ -36,8 +36,8 @@ def test_rules_imports_nothing_that_talks_to_a_model():
 
 
 def test_resolve_is_deterministic_for_a_given_seed():
-    world = make_world(forces=(make_force("CU", "ground", region="r1"),))
-    actions = [Action(actor="US", type="statement")]
+    world = make_world(forces=(make_force("DEF", "ground", region="r1"),))
+    actions = [Action(actor="ATK", type="statement")]
     first, _ = rules.resolve(world, actions, random.Random(7))
     second, _ = rules.resolve(world, actions, random.Random(7))
     assert first.digest() == second.digest()
@@ -48,11 +48,11 @@ def test_resolve_differs_across_seeds_when_combat_happens():
     and the spread we report to the class would be fake."""
     world = make_world(
         forces=(
-            make_force("US", "ground", region="r1", strength=100.0, posture="offensive"),
-            make_force("CU", "ground", region="r1", strength=50.0, posture="defensive"),
+            make_force("ATK", "ground", region="r1", strength=100.0, posture="offensive"),
+            make_force("DEF", "ground", region="r1", strength=50.0, posture="defensive"),
         )
     )
-    actions = [Action(actor="US", type="invade", region="r1")]
+    actions = [Action(actor="ATK", type="invade", region="r1")]
     a, _ = rules.resolve(world, actions, random.Random(1))
     b, _ = rules.resolve(world, actions, random.Random(999))
     assert a.digest() != b.digest()
@@ -61,12 +61,12 @@ def test_resolve_differs_across_seeds_when_combat_happens():
 def test_resolve_does_not_mutate_the_state_it_was_given():
     world = make_world(
         forces=(
-            make_force("US", "ground", region="r1", strength=100.0, posture="offensive"),
-            make_force("CU", "ground", region="r1", strength=50.0),
+            make_force("ATK", "ground", region="r1", strength=100.0, posture="offensive"),
+            make_force("DEF", "ground", region="r1", strength=50.0),
         )
     )
     before = world.digest()
-    rules.resolve(world, [Action(actor="US", type="invade", region="r1")], random.Random(3))
+    rules.resolve(world, [Action(actor="ATK", type="invade", region="r1")], random.Random(3))
     assert world.digest() == before
 
 
@@ -77,6 +77,6 @@ def test_resolve_advances_the_turn_counter():
 
 
 def test_every_actor_keeps_its_identity_across_a_turn():
-    world = make_world(actors={"US": make_actor("US"), "CU": make_actor("CU")})
+    world = make_world(actors={"ATK": make_actor("ATK"), "DEF": make_actor("DEF")})
     out, _ = rules.resolve(world, [], random.Random(1))
     assert set(out.actors) == set(world.actors)

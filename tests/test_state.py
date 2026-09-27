@@ -22,8 +22,8 @@ def test_round_trip_survives_a_json_text_encode_decode(world):
 
 
 def test_digest_is_independent_of_key_insertion_order():
-    a = make_world(regions={"r1": make_region("r1", "CU"), "r2": make_region("r2", "US")})
-    b = make_world(regions={"r2": make_region("r2", "US"), "r1": make_region("r1", "CU")})
+    a = make_world(regions={"r1": make_region("r1", "DEF"), "r2": make_region("r2", "ATK")})
+    b = make_world(regions={"r2": make_region("r2", "ATK"), "r1": make_region("r1", "DEF")})
     assert a.digest() == b.digest()
 
 
@@ -31,7 +31,7 @@ def test_digest_changes_when_a_number_changes(world):
     before = world.digest()
     touched = world.replace_forces(
         tuple(
-            f if f.owner != "CU" else make_force("CU", "ground", region="r1", strength=49.0)
+            f if f.owner != "DEF" else make_force("DEF", "ground", region="r1", strength=49.0)
             for f in world.forces
         )
     )
@@ -46,7 +46,7 @@ def test_every_action_type_has_a_rung_and_every_rung_has_a_name():
 
 def test_action_rung_comes_from_the_ladder_not_from_a_literal():
     for action_type in ACTION_TYPES:
-        action = Action(actor="US", type=action_type)
+        action = Action(actor="ATK", type=action_type)
         assert action.rung == ESCALATION_RUNGS[action_type]
 
 
@@ -56,24 +56,24 @@ def test_invade_is_the_top_rung_and_hold_is_the_bottom():
 
 
 def test_action_round_trips_through_json():
-    a = Action(actor="US", type="invade", region="r1", forces=("US-ground-1",), intensity=3)
+    a = Action(actor="ATK", type="invade", region="r1", forces=("ATK-ground-1",), intensity=3)
     assert Action.from_json(a.to_json()) == a
 
 
 def test_resolution_round_trips_through_json():
-    r = Resolution(kind="fuel_exhausted", actor="CU", reason="no fuel", detail={"days": 0})
+    r = Resolution(kind="fuel_exhausted", actor="DEF", reason="no fuel", detail={"days": 0})
     assert Resolution.from_json(r.to_json()) == r
 
 
 def test_forces_of_and_forces_in_filter_independently(world):
-    assert {f.owner for f in world.forces_of("CU")} == {"CU"}
+    assert {f.owner for f in world.forces_of("DEF")} == {"DEF"}
     assert {f.region for f in world.forces_in("sea-1")} == {"sea-1"}
 
 
 def test_relation_defaults_to_zero_for_an_unknown_pair(world):
-    assert world.relation("US", "CU") == -60
+    assert world.relation("ATK", "DEF") == -60
     assert world.relation("CN", "RU") == 0
 
 
 def test_regions_of_returns_only_the_owners_regions(world):
-    assert {r.id for r in world.regions_of("CU")} == {"r1"}
+    assert {r.id for r in world.regions_of("DEF")} == {"r1"}

@@ -29,7 +29,7 @@ def _capture(seen: dict, text: str = "Quiet day on the strait."):
 
 def test_narrator_cannot_mutate_state(world):
     before = world.digest()
-    narrator.narrate(world, [], call=_returns('{"set": {"CU": {"fuel_days": 999}}}'))
+    narrator.narrate(world, [], call=_returns('{"set": {"DEF": {"fuel_days": 999}}}'))
     assert world.digest() == before
 
 
@@ -71,7 +71,7 @@ def test_the_prompt_carries_the_resolutions_verbatim(world):
     seen: dict = {}
     narrator.narrate(
         world,
-        [Resolution(kind="fuel_exhausted", actor="CU", reason="the island ran dry")],
+        [Resolution(kind="fuel_exhausted", actor="DEF", reason="the island ran dry")],
         call=_capture(seen),
     )
     assert "the island ran dry" in seen["prompt"]
@@ -84,7 +84,7 @@ def test_bookkeeping_events_are_kept_out_of_the_news(world):
         world,
         [
             Resolution(
-                kind="escalation", actor="US", reason="reached rung 6 with 'air_campaign'"
+                kind="escalation", actor="ATK", reason="reached rung 6 with 'air_campaign'"
             )
         ],
         call=_capture(seen),
@@ -109,13 +109,13 @@ def test_the_prompt_reports_the_standing_position_of_every_actor(world):
 def test_empty_sea_zones_are_left_out_of_the_civilian_summary():
     world = make_world(
         regions={
-            "cu-havana": make_region("cu-havana", "CU", name="Havana", population=1_200_000),
+            "capital": make_region("capital", "DEF", name="Capital", population=1_200_000),
             "sea-1": make_region("sea-1", "", name="Open sea", terrain="sea", population=0),
         }
     )
     seen: dict = {}
     narrator.narrate(world, [], call=_capture(seen))
-    assert "Havana" in seen["prompt"]
+    assert "Capital" in seen["prompt"]
     assert "Open sea" not in seen["prompt"]
 
 
@@ -130,7 +130,7 @@ def test_the_dispatch_describes_the_turn_that_just_resolved():
     being reported is one behind the state's turn counter."""
     state = make_world(turn=5)
     resolved, resolutions = rules.resolve(
-        state, [Action(actor="US", type="sanction")], random.Random(1)
+        state, [Action(actor="ATK", type="sanction")], random.Random(1)
     )
     seen: dict = {}
     narrator.narrate(resolved, resolutions, call=_capture(seen))
