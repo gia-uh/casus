@@ -61,10 +61,20 @@ def dispatch_model(actors: tuple[str, ...]) -> type:
     return model
 
 
-async def narrate(state: WorldState, resolutions: list[Resolution], engine: Engine) -> str:
+async def narrate(
+    state: WorldState,
+    resolutions: list[Resolution],
+    engine: Engine,
+    language: str = "en",
+) -> str:
     """Return a short public account of the turn that just resolved."""
     prompt = build_prompt(state, resolutions)
-    context = Context([Message.system(SYSTEM_PROMPT), Message.user(prompt)])
+    system = SYSTEM_PROMPT
+    if language != "en":
+        from .players import LANGUAGE_NAMES
+
+        system += f" File the dispatch in {LANGUAGE_NAMES.get(language, language)}."
+    context = Context([Message.system(system), Message.user(prompt)])
     dispatch = await engine.create(context, dispatch_model(tuple(sorted(state.actors))))
     return " ".join(_sentence(line.text) for line in dispatch.lines if line.text.strip())
 

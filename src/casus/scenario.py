@@ -166,6 +166,15 @@ class Scenario:
     def briefing(self, actor_id: str) -> str:
         return str(self.actors[actor_id]["briefing"])
 
+    def language(self) -> str:
+        """IETF tag the players and the replayer speak. Default English.
+
+        A scenario written for a particular audience should be played and read in
+        that audience's language: a rationale the room cannot read is a rationale
+        the room cannot check.
+        """
+        return str(self.raw.get("language", "en") or "en")
+
     def narrator_model(self) -> str:
         """Model for the news ticker. Empty means the endpoint's default."""
         return str(self.raw.get("narrator_model", "") or "")
