@@ -1,7 +1,5 @@
 import json
 
-from helpers import make_force, make_region, make_world
-
 from casus.state import (
     ACTION_TYPES,
     ESCALATION_RUNGS,
@@ -10,6 +8,7 @@ from casus.state import (
     Resolution,
     WorldState,
 )
+from helpers import make_force, make_region, make_world
 
 
 def test_world_state_round_trips_through_json(world):

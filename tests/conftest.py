@@ -5,9 +5,9 @@ import them directly.
 from __future__ import annotations
 
 import pytest
-from helpers import make_force, make_world
 
 from casus.state import WorldState
+from helpers import make_force, make_world
 
 
 @pytest.fixture

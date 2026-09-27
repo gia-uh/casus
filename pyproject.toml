@@ -37,3 +37,7 @@ line-length = 96
 # Keyword-argument builders read better than dict literals with quoted keys,
 # and every test helper in this repo is one.
 ignore = ["C408"]
+
+[tool.ruff.lint.isort]
+# `helpers` is the test-support module in tests/, not a third-party package.
+known-first-party = ["casus", "helpers"]

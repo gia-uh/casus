@@ -20,6 +20,7 @@ def make_actor(actor_id: str, **overrides) -> ActorState:
         domestic_support=70.0,
         intl_legitimacy=60.0,
         isr=0.8,
+        fuel_inflow=4.0,
         escalation_rung=0,
     )
     base.update(overrides)

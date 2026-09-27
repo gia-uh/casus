@@ -145,6 +145,10 @@ class ActorState:
     domestic_support: float
     intl_legitimacy: float
     isr: float
+    #: Fuel-days that reach this actor each turn from trade or an ally. A
+    #: blockade is modelled as driving this to zero, not as a special case
+    #: inside the combat rules.
+    fuel_inflow: float = 0.0
     escalation_rung: int = 0
 
     def to_json(self) -> dict[str, Any]:
