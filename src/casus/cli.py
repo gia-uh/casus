@@ -8,6 +8,7 @@ import sys
 
 from . import bundle as bundle_mod
 from . import engine
+from . import score as score_mod
 from .scenario import Scenario, ScenarioError
 
 
@@ -40,12 +41,20 @@ def main(argv: list[str] | None = None) -> int:
     bundle_cmd.add_argument("transcript")
     bundle_cmd.add_argument("--out", default=None)
 
+    score_cmd = sub.add_parser("score", help="score a run against the engine's own claims")
+    score_cmd.add_argument("transcript")
+    score_cmd.add_argument(
+        "--out", default=None, help="write the report here instead of stdout"
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
         return _run(args)
     if args.command == "bundle":
         return _bundle(args)
+    if args.command == "score":
+        return _score(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -99,6 +108,17 @@ def _bundle(args) -> int:
     print(f"casus: wrote {written} — {size / 1024:.0f} KiB, self-contained")
     print("casus: open it in a browser and step the turns with the arrow keys")
     return 0
+
+
+def _score(args) -> int:
+    result = score_mod.score(args.transcript)
+    text = score_mod.report(result)
+    if args.out:
+        pathlib.Path(args.out).write_text(text)
+        print(f"casus: wrote {args.out}")
+    else:
+        print(text)
+    return 0 if result.reproducible else 1
 
 
 def _verify(transcript: str, quiet: bool) -> int:
