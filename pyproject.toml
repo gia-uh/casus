@@ -32,3 +32,8 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 96
+
+[tool.ruff.lint]
+# Keyword-argument builders read better than dict literals with quoted keys,
+# and every test helper in this repo is one.
+ignore = ["C408"]

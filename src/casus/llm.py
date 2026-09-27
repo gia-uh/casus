@@ -130,16 +130,19 @@ def _parse(body: dict, model: str) -> LLMResult:
 
 
 def _body_excerpt(response) -> str:
+    """Best-effort excerpt of an error body, for the message in LLMError."""
     try:
         return json.dumps(response.json())[:200]
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return str(getattr(response, "text", ""))[:200]
 
 
 def _smoke() -> int:
     """Manual check against the real endpoint. Not part of the test suite."""
     cfg = Config.from_env()
-    print(f"base_url={cfg.base_url} model={cfg.default_model} key={'set' if cfg.api_key else 'none'}")
+    print(
+        f"base_url={cfg.base_url} model={cfg.default_model} key={'set' if cfg.api_key else 'none'}"
+    )
     result = complete(
         cfg.default_model,
         [{"role": "user", "content": "Reply with exactly: casus online"}],

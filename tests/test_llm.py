@@ -43,9 +43,7 @@ def test_complete_posts_to_configured_endpoint(monkeypatch):
         return _FakeResponse(200, _ok_body())
 
     monkeypatch.setattr(llm.httpx, "post", fake_post)
-    result = llm.complete(
-        "qwen/qwen3-32b", [{"role": "user", "content": "hi"}], config=_cfg()
-    )
+    result = llm.complete("qwen/qwen3-32b", [{"role": "user", "content": "hi"}], config=_cfg())
 
     assert captured["json"]["messages"][0]["content"] == "hi"
     assert captured["headers"]["Authorization"] == "Bearer x"
