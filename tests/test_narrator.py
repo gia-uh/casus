@@ -45,7 +45,7 @@ def test_the_dispatch_is_capped_so_it_cannot_run_away(world):
     assert schema.model_json_schema()["properties"]["lines"]["maxItems"] == narrator.MAX_LINES
 
 
-def test_every_line_is_attributed_in_the_rendered_text(world):
+def test_every_line_reaches_the_rendered_text(world):
     text, _ = _narrate(
         world,
         engine=FakeEngine(
@@ -57,8 +57,7 @@ def test_every_line_is_attributed_in_the_rendered_text(world):
             )
         ),
     )
-    assert "ATK: Tankers turned back." in text
-    assert "DEF: The island dug in." in text
+    assert text == "Tankers turned back. The island dug in."
 
 
 def test_an_empty_line_is_dropped_rather_than_printed_bare(world):
@@ -68,7 +67,7 @@ def test_an_empty_line_is_dropped_rather_than_printed_bare(world):
             _dispatch([{"actor": "ATK", "text": "  "}, {"actor": "DEF", "text": "Held."}])
         ),
     )
-    assert text == "DEF: Held."
+    assert text == "Held."
 
 
 # --- what the correspondent is told -----------------------------------------
@@ -122,3 +121,36 @@ def test_the_dispatch_describes_the_turn_that_just_resolved():
     )
     _, engine = _narrate(resolved, resolutions)
     assert engine.prompts[0].startswith("DAY 5.")
+
+
+def test_the_actor_is_not_prefixed_onto_a_sentence_that_already_names_it(world):
+    """Prefixing produced "THIRD: THIRD transferred ten fuel-days" on screen."""
+    text, _ = _narrate(
+        world,
+        engine=FakeEngine(_dispatch([{"actor": "ATK", "text": "ATK turned the tankers back"}])),
+    )
+    assert text == "ATK turned the tankers back."
+    assert "ATK: ATK" not in text
+
+
+def test_a_fragment_gets_terminal_punctuation_so_the_lines_do_not_run_together(world):
+    text, _ = _narrate(
+        world,
+        engine=FakeEngine(
+            _dispatch(
+                [
+                    {"actor": "ATK", "text": "Tankers turned back"},
+                    {"actor": "DEF", "text": "The island dug in"},
+                ]
+            )
+        ),
+    )
+    assert text == "Tankers turned back. The island dug in."
+
+
+def test_whitespace_inside_a_line_is_normalised(world):
+    text, _ = _narrate(
+        world,
+        engine=FakeEngine(_dispatch([{"actor": "ATK", "text": "  two   spaces  here.  "}])),
+    )
+    assert text == "two spaces here."

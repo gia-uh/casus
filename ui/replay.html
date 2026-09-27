@@ -255,6 +255,7 @@ function drawMap(snap) {
          + `stroke-dasharray="${(1.2 * S).toFixed(2)} ${(1.2 * S).toFixed(2)}"/>`;
   });
 
+  let labelled = 0;
   const strengthIn = id => snap.forces.filter(f => f.region === id)
                                       .reduce((s,f) => s + f.strength, 0);
   regions.forEach(r => {
@@ -276,7 +277,11 @@ function drawMap(snap) {
     }
     out += `<circle class="marker" cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${ac}" `
          + `stroke-width="${(0.3 * S).toFixed(2)}"/>`;
-    out += `<text class="rname" x="${(x + radius + 0.9 * S).toFixed(2)}" y="${(y + 0.8 * S).toFixed(2)}" `
+    /* alternate the label side so neighbouring regions do not overprint */
+    const flip = (labelled++ % 2) === 1;
+    const lx = flip ? x - radius - 0.9 * S : x + radius + 0.9 * S;
+    const anchor = flip ? 'end' : 'start';
+    out += `<text class="rname" text-anchor="${anchor}" x="${lx.toFixed(2)}" y="${(y + 0.8 * S).toFixed(2)}" `
          + `font-size="${(2.4 * S).toFixed(2)}">${r.name}</text>`;
     out += `</g>`;
   });
@@ -378,8 +383,7 @@ function drawDrawer(frame) {
     .join('');
   const mine = prompts.filter(p => p.actor === drawerActor);
   document.getElementById('promptbody').textContent = mine
-    .map((p, i) => (mine.length > 1 ? `── attempt ${i+1} ──\n` : '') +
-                   p.messages.map(m => `[${m.role}]\n${m.content}`).join('\n\n'))
+    .map((p, i) => (mine.length > 1 ? `── attempt ${i+1} ──\n` : '') + (p.prompt || ''))
     .join('\n\n');
   document.querySelectorAll('#drawersel button').forEach(b =>
     b.onclick = () => { drawerActor = b.dataset.actor; drawDrawer(frame); });

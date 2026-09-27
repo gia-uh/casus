@@ -66,9 +66,20 @@ async def narrate(state: WorldState, resolutions: list[Resolution], engine: Engi
     prompt = build_prompt(state, resolutions)
     context = Context([Message.system(SYSTEM_PROMPT), Message.user(prompt)])
     dispatch = await engine.create(context, dispatch_model(tuple(sorted(state.actors))))
-    return " ".join(
-        f"{line.actor}: {line.text.strip()}" for line in dispatch.lines if line.text.strip()
-    )
+    return " ".join(_sentence(line.text) for line in dispatch.lines if line.text.strip())
+
+
+def _sentence(text: str) -> str:
+    """One finished sentence.
+
+    The actor is not prefixed: the enum already forces the model to pick a real
+    one, and it names that actor in the sentence itself, so prefixing produced
+    "THIRD: THIRD transferred ten fuel-days". Terminal punctuation is added when
+    missing, because the lines are joined into a paragraph and a model that
+    returns fragments ran them together.
+    """
+    clean = " ".join(text.split())
+    return clean if clean.endswith((".", "!", "?")) else clean + "."
 
 
 def build_prompt(state: WorldState, resolutions: list[Resolution]) -> str:
