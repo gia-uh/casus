@@ -129,6 +129,24 @@ INTENSITY_MIN, INTENSITY_MAX = 1, 3
 #: Action types that actually cause an exchange in a region.
 OFFENSIVE_ACTIONS = frozenset({"invade", "strike", "air_campaign"})
 
+#: Action types for which `region` means something. For the rest — a statement,
+#: a negotiation, a sanction — a region is decorative, and both live models kept
+#: attaching one ("global", "international"). Rejecting those crowded the real
+#: rejections out of the log, so a decorative region is dropped instead.
+REGIONAL_ACTIONS = frozenset(
+    {
+        "invade",
+        "strike",
+        "air_campaign",
+        "blockade",
+        "deploy",
+        "disperse",
+        "harden",
+        "cyber",
+        "covert",
+    }
+)
+
 #: Which force kinds can deliver each offensive action.
 DELIVERY_KINDS: dict[str, frozenset[str]] = {
     "invade": frozenset({"ground"}),
@@ -245,11 +263,16 @@ def check_legality(state: WorldState, actions: list[Action], draft: _Draft) -> l
 
 
 def _clamped(action: Action) -> Action:
-    """Bring an accepted action's intensity into range, once, for every rule."""
+    """Normalise an accepted action, once, for every rule downstream.
+
+    Clamps intensity into range and drops a region on an action that has no use
+    for one, so no later rule has to wonder whether it was validated.
+    """
     intensity = max(INTENSITY_MIN, min(INTENSITY_MAX, action.intensity))
-    if intensity == action.intensity:
+    region = action.region if action.type in REGIONAL_ACTIONS else None
+    if intensity == action.intensity and region == action.region:
         return action
-    return dataclasses.replace(action, intensity=intensity)
+    return dataclasses.replace(action, intensity=intensity, region=region)
 
 
 def _illegality(state: WorldState, action: Action) -> str | None:
@@ -257,7 +280,11 @@ def _illegality(state: WorldState, action: Action) -> str | None:
         return f"unknown action type '{action.type}'"
     if action.actor not in state.actors:
         return f"unknown actor '{action.actor}'"
-    if action.region is not None and action.region not in state.regions:
+    if (
+        action.region is not None
+        and action.type in REGIONAL_ACTIONS
+        and action.region not in state.regions
+    ):
         return f"unknown region '{action.region}'"
     if action.target_actor is not None and action.target_actor not in state.actors:
         return f"unknown target actor '{action.target_actor}'"
@@ -568,6 +595,25 @@ def legal_action_types(state: WorldState, actor: str) -> tuple[str, ...]:
             continue
         allowed.append(action_type)
     return tuple(allowed)
+
+
+def reachable_regions(state: WorldState, actor: str, action_type: str) -> tuple[str, ...]:
+    """Regions this actor can currently deliver `action_type` against.
+
+    Offered to players explicitly. The information is derivable from the map and
+    the order of battle already in the prompt, but a 32B model reliably fails to
+    derive it: in the first live smoke run one repeated an out-of-reach air
+    campaign three turns running, having moved its carrier away from the target
+    in the belief that this enabled the strike. Stating reach outright makes any
+    remaining failure the model's and not an information gap.
+    """
+    needed = DELIVERY_KINDS.get(action_type)
+    if needed is None:
+        return tuple(sorted(state.regions))
+    owned = [f for f in state.forces_of(actor) if f.kind in needed]
+    if not owned:
+        return ()
+    return tuple(sorted(r for r in state.regions if _can_reach(state, owned, r)))
 
 
 def perturb_view(state: WorldState, actor: str, rng: random.Random) -> WorldState:

@@ -317,3 +317,37 @@ def test_a_region_identifier_appears_in_the_map_section():
     seen: dict = {}
     _player().decide(world, random.Random(1), call=_capture(seen))
     assert "cu-havana" in seen["prompt"].split("MAP")[1]
+
+
+def test_the_prompt_states_which_regions_each_offensive_action_can_reach():
+    """Added after the first live run: a 32B model repeated an out-of-reach air
+    campaign three turns running with the map in front of it."""
+    world = make_world(
+        regions={
+            "target": make_region("target", "CU", adjacency=("sea-1",)),
+            "far": make_region("far", "CU"),
+            "sea-1": make_region(
+                "sea-1", "", terrain="sea", population=0, adjacency=("target",)
+            ),
+        },
+        forces=(make_force("US", "air", region="sea-1"),),
+    )
+    seen: dict = {}
+    _player(actor_id="US", briefing="You are the US.").decide(
+        world, random.Random(1), call=_capture(seen)
+    )
+    offered = seen["prompt"].split("ACTIONS AVAILABLE TO YOU THIS TURN")[1]
+    assert "air_campaign can reach: sea-1, target" in offered
+    assert "far" not in offered.split("air_campaign can reach:")[1].split("\n")[0]
+
+
+def test_reach_says_nowhere_when_the_platform_is_isolated():
+    world = make_world(
+        regions={
+            "island": make_region("island", "CU"),
+            "sea-1": make_region("sea-1", "", terrain="sea", population=0),
+        },
+        forces=(make_force("US", "ground", region="sea-1"),),
+    )
+    assert rules.reachable_regions(world, "US", "invade") == ("sea-1",)
+    assert rules.reachable_regions(world, "US", "air_campaign") == ()

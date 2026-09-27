@@ -223,6 +223,16 @@ def build_prompt(actor_id: str, briefing: str, view: WorldState, legal: tuple[st
         "",
         "ACTIONS AVAILABLE TO YOU THIS TURN",
         "  " + ", ".join(legal),
+    ]
+    for action_type in legal:
+        if action_type not in rules.DELIVERY_KINDS:
+            continue
+        reach = rules.reachable_regions(view, actor_id, action_type)
+        lines.append(
+            f"  {action_type} can reach: "
+            + (", ".join(reach) if reach else "nowhere right now")
+        )
+    lines += [
         "",
         (
             f"Declare between 1 and {MAX_ACTIONS_PER_TURN} actions. Use only the types "

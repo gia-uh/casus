@@ -140,3 +140,30 @@ def test_a_legal_action_alongside_an_illegal_one_still_happens():
     )
     assert len(_rejections(res)) == 1
     assert out.regions["r1"].infrastructure < 100.0, "the legal strike should have landed"
+
+
+def test_a_decorative_region_on_a_statement_is_dropped_rather_than_rejected():
+    """Both live models attached regions like 'global' to statements. Rejecting
+    those crowded the real rejections out of the log."""
+    world = make_world()
+    out, res = _resolve(world, [Action(actor="US", type="statement", region="global")])
+    assert not _rejections(res)
+    assert not any(r.kind == "action_rejected" for r in out.log)
+
+
+def test_an_unknown_region_on_an_action_that_needs_one_is_still_rejected():
+    world = make_world(forces=(make_force("US", "air", region="sea-1"),))
+    _, res = _resolve(world, [Action(actor="US", type="air_campaign", region="atlantis")])
+    assert _rejections(res)[0].reason == "unknown region 'atlantis'"
+
+
+def test_negotiate_and_sanction_ignore_a_region_entirely():
+    world = make_world()
+    _, res = _resolve(
+        world,
+        [
+            Action(actor="US", type="negotiate", region="nowhere"),
+            Action(actor="US", type="sanction", region="nowhere"),
+        ],
+    )
+    assert not _rejections(res)
