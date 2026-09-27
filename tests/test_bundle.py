@@ -5,27 +5,21 @@ import pytest
 
 from casus import bundle, engine
 from casus.scenario import Scenario
+from helpers import FakeEngine
 
 ROOT = pathlib.Path(__file__).parent.parent
 SMOKE = ROOT / "scenarios" / "smoke.yaml"
 
 
-def _scripted(model, messages, schema=None, temperature=0.7):
-    from casus.llm import LLMResult
-
-    return LLMResult(
-        text='{"actions":[{"type":"hold"}],"rationale":"wait","assessment":"nothing"}',
-        raw={"scripted": True},
-        model=model,
-        prompt_tokens=10,
-        completion_tokens=5,
-    )
+def _engines(scenario, reply=None):
+    return {a: FakeEngine(reply) for a in scenario.actors}
 
 
 @pytest.fixture
 def transcript(tmp_path) -> pathlib.Path:
     out = tmp_path / "run.jsonl"
-    engine.run(Scenario.load(SMOKE), seed=1, out=out, call=_scripted, turns=2)
+    scenario = Scenario.load(SMOKE)
+    engine.run(scenario, seed=1, out=out, engines=_engines(scenario), turns=2)
     return out
 
 
@@ -60,8 +54,8 @@ def test_the_embedded_json_parses_back_to_the_records(transcript, tmp_path):
 
 def test_raw_completions_are_left_out_to_keep_the_file_small(transcript, tmp_path):
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
-    assert '"kind":"response"' not in html
-    assert "response" not in bundle.KEPT_KINDS
+    assert '"kind":"declaration"' not in html
+    assert "declaration" not in bundle.KEPT_KINDS
 
 
 def test_the_prompt_the_model_saw_is_in_the_bundle(transcript, tmp_path):
@@ -82,26 +76,18 @@ def test_a_closing_script_tag_in_the_data_cannot_end_the_block_early(tmp_path):
     """A rationale containing '</script>' would otherwise truncate the payload
     and render the rest of the run as page text."""
     out = tmp_path / "run.jsonl"
-    engine.run(Scenario.load(SMOKE), seed=1, out=out, call=_hostile, turns=1)
+    scenario = Scenario.load(SMOKE)
+    engine.run(scenario, seed=1, out=out, engines=_engines(scenario, _HOSTILE), turns=1)
     html = bundle.bundle(out, tmp_path / "demo.html").read_text()
     body = html.split('<script id="casus-data" type="application/json">')[1]
     payload = body.split("</script>")[0]
     assert json.loads(payload.replace("<\\/script", "</script"))
 
 
-def _hostile(model, messages, schema=None, temperature=0.7):
-    from casus.llm import LLMResult
-
-    return LLMResult(
-        text=json.dumps(
-            {
-                "actions": [{"type": "hold"}],
-                "rationale": "we will </script><h1>own the page</h1> hold",
-                "assessment": "",
-            }
-        ),
-        raw={},
-        model=model,
-        prompt_tokens=1,
-        completion_tokens=1,
-    )
+#: A rationale carrying a closing script tag. Without escaping this truncates the
+#: inlined payload and renders the rest of the run as page text.
+_HOSTILE = {
+    "actions": [{"type": "hold"}],
+    "rationale": "we will </script><h1>own the page</h1> hold",
+    "assessment": "",
+}

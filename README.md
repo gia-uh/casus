@@ -18,19 +18,22 @@ the text that produced each decision.
 
 ```bash
 uv sync
-export CASUS_BASE_URL=https://openrouter.ai/api/v1
-export CASUS_API_KEY_FILE=~/.config/openrouter.token
+export BASE_URL=https://openrouter.ai/api/v1
+export API_KEY=$(cat ~/.config/openrouter.token)
 uv run casus run scenarios/smoke.yaml --seed 42 --out runs/run-42.jsonl
 uv run casus verify runs/run-42.jsonl
 uv run casus bundle runs/run-42.jsonl --out demo.html
 ```
 
-Players are 27–32B-class models by default, so the same scenario runs against a
-local server with one variable changed:
+The transport is [lingo](https://github.com/gia-uh/lingo): casus has no LLM
+plumbing of its own, so the endpoint, the structured-output call and the parsing
+are lingo's, configured through lingo's own environment convention. Players are
+27–32B-class models by default, so the same scenario runs against a local server
+with one variable changed:
 
 ```bash
-export CASUS_BASE_URL=http://localhost:1234/v1   # LM Studio
-export CASUS_API_KEY=
+export BASE_URL=http://localhost:11434/v1   # Ollama
+export API_KEY=ollama
 ```
 
 Check the endpoint before a run. This one talks to the real service, so it is a
@@ -49,7 +52,7 @@ uv run python -m casus.llm --smoke
 | `players.py` | One LLM per actor: private briefing, fog-of-war view, validated actions |
 | `narrator.py` | Turn narration. Read-only on state, and a test enforces it |
 | `engine.py` | Turn loop, transcript, replay verification |
-| `llm.py` | One POST against any OpenAI-compatible endpoint |
+| `actions.py` | The per-scenario declaration types: invalid states are unrepresentable |
 | `bundle.py` | Transcript + map → one self-contained HTML replayer |
 
 Scenarios are YAML under `scenarios/`. `smoke.yaml` ships with the engine and is

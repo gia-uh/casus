@@ -1,30 +1,37 @@
 """The turn loop, the transcript, and replay verification.
 
 The transcript is the product. It carries the scenario, every state, every prompt
-sent, every raw completion received, every action declared and every resolution
-computed. Given one, `replay` re-derives the whole run without touching a
-network, and compares each derived state digest against the recorded one. A
-mismatch means some non-determinism leaked into the resolver, and it fails loudly
-rather than reporting a plausible run.
+sent, every validated declaration received, every action, and every resolution.
+Given one, `replay` re-derives the whole run without touching a network and
+compares each derived state digest against the recorded one. A mismatch means
+non-determinism leaked into the resolver, and it fails loudly rather than
+reporting a plausible run.
+
+The loop is async because lingo is. Within a turn the random draws happen first,
+in a fixed actor order, and only then do the calls go out together — determinism
+and concurrency are separated on purpose, and the transcript is written in actor
+order regardless of which reply lands first.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import pathlib
 import random
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
-from . import rules
-from .llm import LLMResult, complete
+from lingo import LLM, Engine
+
+from . import narrator, rules
 from .players import Player, PlayerTurn
 from .scenario import Scenario
 from .state import Action, Resolution, WorldState
 
 RECORD_KINDS = frozenset(
-    {"scenario", "state", "prompt", "response", "action", "resolution", "narrative", "end"}
+    {"scenario", "state", "prompt", "declaration", "action", "resolution", "narrative", "end"}
 )
 
 
@@ -39,9 +46,6 @@ class RunSummary:
     turns: int
     states: list[WorldState]
     transcript: pathlib.Path | None = None
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    schema_failures: int = 0
 
     @property
     def final(self) -> WorldState:
@@ -74,12 +78,22 @@ class _Transcript:
             self._fh = None
 
 
-def run(
+def engine_for(model: str, **kwargs) -> Engine:
+    """A lingo engine for one model.
+
+    Endpoint and credentials come from lingo's own environment convention
+    (`BASE_URL`, `API_KEY`), because transport is lingo's business and casus has
+    no opinion about it.
+    """
+    return Engine(LLM(model=model, **kwargs))
+
+
+async def run_async(
     scenario: Scenario,
     seed: int = 1,
     out: pathlib.Path | str | None = None,
-    call: Callable[..., LLMResult] = complete,
-    narrate: Callable[..., str] | None = None,
+    engines: dict[str, Engine] | None = None,
+    narrator_engine: Engine | None = None,
     turns: int | None = None,
 ) -> RunSummary:
     """Play the scenario and write a transcript."""
@@ -88,11 +102,13 @@ def run(
     state = scenario.initial_state()
     total_turns = turns if turns is not None else scenario.turns
 
+    engines = engines or {a: engine_for(scenario.model(a)) for a in scenario.actors}
     players = {
         actor_id: Player(
             actor_id=actor_id,
             briefing=scenario.briefing(actor_id),
             model=scenario.model(actor_id),
+            engine=engines[actor_id],
         )
         for actor_id in scenario.actors
     }
@@ -107,31 +123,37 @@ def run(
             "seed": seed,
             "turns": total_turns,
             "name": scenario.name,
-            # The whole scenario travels inside the transcript so a replay needs
+            # The whole scenario travels inside the transcript, so a replay needs
             # nothing but this one file.
             "scenario": scenario.raw,
         }
     )
-    transcript.write(
-        {
-            "kind": "state",
-            "turn": state.turn,
-            "digest": state.digest(),
-            "state": state.to_json(),
-        }
-    )
+    _write_state(transcript, state)
 
     try:
         for _ in range(total_turns):
+            order = sorted(players)
+            # Draws first, in a fixed order: this is where determinism lives.
+            views = {a: players[a].view(state, rng) for a in order}
+            for actor_id in order:
+                transcript.write(
+                    {
+                        "kind": "prompt",
+                        "turn": state.turn,
+                        "actor": actor_id,
+                        "model": players[actor_id].model,
+                        "prompt": views[actor_id][0],
+                        "legal": list(views[actor_id][1]),
+                    }
+                )
+
+            results = await asyncio.gather(
+                *(players[a].decide(state, *views[a]) for a in order)
+            )
             declared: list[Action] = []
-            for actor_id in sorted(players):
-                recorder = _recording_call(transcript, state.turn, actor_id, call)
-                player_turn = players[actor_id].decide(state, rng, call=recorder)
+            for actor_id, player_turn in zip(order, results, strict=True):
                 declared.extend(player_turn.actions)
-                summary.prompt_tokens += player_turn.tokens[0]
-                summary.completion_tokens += player_turn.tokens[1]
-                summary.schema_failures += player_turn.schema_failures
-                _write_actions(transcript, state.turn, actor_id, player_turn)
+                _write_declaration(transcript, state.turn, actor_id, player_turn)
 
             state, resolutions = rules.resolve(state, declared, rng)
             for resolution in resolutions:
@@ -142,76 +164,48 @@ def run(
                         "resolution": resolution.to_json(),
                     }
                 )
-            if narrate is not None:
-                text = narrate(state, resolutions)
+            if narrator_engine is not None:
+                text = await narrator.narrate(state, resolutions, narrator_engine)
                 transcript.write({"kind": "narrative", "turn": state.turn - 1, "text": text})
 
-            transcript.write(
-                {
-                    "kind": "state",
-                    "turn": state.turn,
-                    "digest": state.digest(),
-                    "state": state.to_json(),
-                }
-            )
+            _write_state(transcript, state)
             summary.states.append(state)
             summary.turns += 1
 
-        transcript.write(
-            {
-                "kind": "end",
-                "turn": state.turn,
-                "prompt_tokens": summary.prompt_tokens,
-                "completion_tokens": summary.completion_tokens,
-                "schema_failures": summary.schema_failures,
-            }
-        )
+        transcript.write({"kind": "end", "turn": state.turn})
     finally:
         transcript.close()
     return summary
 
 
-def _recording_call(
-    transcript: _Transcript, turn: int, actor_id: str, inner: Callable[..., LLMResult]
-) -> Callable[..., LLMResult]:
-    """Wrap a completion function so the prompt is on disk before the call and
-    the raw reply is on disk before anything reads it.
-
-    Recording from the engine rather than from inside `Player` is what makes the
-    ordering guarantee true: a player that retries produces two prompt/response
-    pairs, both captured, in the order they happened.
-    """
-
-    def recorded(model, messages, schema=None, temperature=0.7) -> LLMResult:
-        transcript.write(
-            {
-                "kind": "prompt",
-                "turn": turn,
-                "actor": actor_id,
-                "model": model,
-                "messages": messages,
-            }
-        )
-        result = inner(model, messages, schema=schema, temperature=temperature)
-        transcript.write(
-            {
-                "kind": "response",
-                "turn": turn,
-                "actor": actor_id,
-                "model": result.model,
-                "text": result.text,
-                "prompt_tokens": result.prompt_tokens,
-                "completion_tokens": result.completion_tokens,
-            }
-        )
-        return result
-
-    return recorded
+def run(scenario: Scenario, **kwargs) -> RunSummary:
+    """Synchronous entry point. The loop is async because lingo is."""
+    return asyncio.run(run_async(scenario, **kwargs))
 
 
-def _write_actions(
+def _write_state(transcript: _Transcript, state: WorldState) -> None:
+    transcript.write(
+        {
+            "kind": "state",
+            "turn": state.turn,
+            "digest": state.digest(),
+            "state": state.to_json(),
+        }
+    )
+
+
+def _write_declaration(
     transcript: _Transcript, turn: int, actor_id: str, player_turn: PlayerTurn
 ) -> None:
+    transcript.write(
+        {
+            "kind": "declaration",
+            "turn": turn,
+            "actor": actor_id,
+            "model": player_turn.model,
+            "declaration": player_turn.declaration,
+        }
+    )
     for action in player_turn.actions:
         transcript.write(
             {
@@ -221,7 +215,6 @@ def _write_actions(
                 "action": action.to_json(),
                 "rationale": player_turn.rationale,
                 "assessment": player_turn.assessment,
-                "schema_failures": player_turn.schema_failures,
                 "prompt": player_turn.prompt,
             }
         )
@@ -235,11 +228,29 @@ def read_records(path: pathlib.Path | str) -> list[dict]:
         return [json.loads(line) for line in fh if line.strip()]
 
 
-def replay(path: pathlib.Path | str) -> RunSummary:
-    """Re-derive the run from its recorded completions and verify every state.
+class _RecordedEngine:
+    """Serves the declarations a run already produced, in recorded order.
 
-    Raises `ReplayMismatch` naming the first turn and field that differs.
+    Replay does not call a model. It re-runs the resolver over the same
+    declarations and checks the arithmetic still lands in the same place.
     """
+
+    def __init__(self, declarations: Iterator[dict]):
+        self._queue = list(declarations)
+        self._index = 0
+
+    async def create(self, context, schema, *instructions):
+        if self._index >= len(self._queue):
+            raise ReplayMismatch(
+                "the transcript ran out of recorded declarations before the run finished"
+            )
+        payload = self._queue[self._index]
+        self._index += 1
+        return schema.model_validate(payload)
+
+
+def replay(path: pathlib.Path | str) -> RunSummary:
+    """Re-derive the run from its recorded declarations and verify every state."""
     records = read_records(path)
     header = next((r for r in records if r["kind"] == "scenario"), None)
     if header is None:
@@ -247,21 +258,18 @@ def replay(path: pathlib.Path | str) -> RunSummary:
 
     scenario = Scenario.from_dict(header["scenario"])
     recorded_states = {r["turn"]: r for r in records if r["kind"] == "state"}
-    replies = _reply_queue(records)
 
-    def canned(model, messages, schema=None, temperature=0.7) -> LLMResult:
-        try:
-            return next(replies)
-        except StopIteration as exc:
-            raise ReplayMismatch(
-                "the transcript ran out of recorded replies before the run finished"
-            ) from exc
+    per_actor: dict[str, list[dict]] = {}
+    for record in records:
+        if record["kind"] == "declaration":
+            per_actor.setdefault(record["actor"], []).append(record["declaration"])
 
+    engines = {a: _RecordedEngine(iter(per_actor.get(a, []))) for a in scenario.actors}
     summary = run(
         scenario,
         seed=int(header["seed"]),
         out=None,
-        call=canned,
+        engines=engines,  # type: ignore[arg-type]
         turns=int(header["turns"]),
     )
 
@@ -271,22 +279,10 @@ def replay(path: pathlib.Path | str) -> RunSummary:
             raise ReplayMismatch(f"turn {state.turn} has no recorded state to compare against")
         if recorded["digest"] != state.digest():
             raise ReplayMismatch(
-                f"turn {state.turn} diverged: {_first_difference(recorded['state'], state.to_json())}"
+                f"turn {state.turn} diverged: "
+                f"{_first_difference(recorded['state'], state.to_json())}"
             )
     return summary
-
-
-def _reply_queue(records: list[dict]) -> Iterator[LLMResult]:
-    for record in records:
-        if record["kind"] != "response":
-            continue
-        yield LLMResult(
-            text=record["text"],
-            raw={"replayed": True},
-            model=record.get("model", ""),
-            prompt_tokens=int(record.get("prompt_tokens", 0)),
-            completion_tokens=int(record.get("completion_tokens", 0)),
-        )
 
 
 def _first_difference(recorded: object, derived: object, path: str = "") -> str:

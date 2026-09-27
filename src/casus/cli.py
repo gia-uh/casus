@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 from . import bundle as bundle_mod
-from . import engine, narrator
+from . import engine
 from .scenario import Scenario, ScenarioError
 
 
@@ -62,20 +62,23 @@ def _run(args) -> int:
         else pathlib.Path("runs") / f"{scenario.name}-{args.seed}.jsonl"
     )
     print(f"casus: {scenario.name}, seed {args.seed}, {args.turns or scenario.turns} turns")
-    narrate = None
-    if not args.no_narrate:
-        model = str(scenario.raw.get("narrator_model", "")) or ""
-
-        def narrate(state, resolutions):
-            return narrator.narrate(state, resolutions, model=model)
-
-    summary = engine.run(scenario, seed=args.seed, out=out, turns=args.turns, narrate=narrate)
+    narrator_engine = (
+        None
+        if args.no_narrate
+        else engine.engine_for(
+            scenario.narrator_model() or scenario.model(next(iter(scenario.actors)))
+        )
+    )
+    summary = engine.run(
+        scenario,
+        seed=args.seed,
+        out=out,
+        turns=args.turns,
+        narrator_engine=narrator_engine,
+    )
 
     print(f"casus: wrote {out}")
-    print(
-        f"casus: {summary.turns} turns, tokens {summary.prompt_tokens}/"
-        f"{summary.completion_tokens}, schema failures {summary.schema_failures}"
-    )
+    print(f"casus: {summary.turns} turns")
     for actor_id, actor in sorted(summary.final.actors.items()):
         print(
             f"  {actor_id}: rung {actor.escalation_rung}, fuel {actor.fuel_days:.0f}d, "

@@ -16,9 +16,9 @@ WORLDMAP = pathlib.Path(__file__).parent.parent.parent / "ui" / "worldmap.json"
 DATA_TOKEN = "__CASUS_DATA__"
 MAP_TOKEN = "__CASUS_WORLDMAP__"
 
-#: Record kinds the replayer reads. Raw completions are dropped from the bundle:
-#: they are in the transcript for audit, and inlining them would triple the file
-#: for something no panel displays.
+#: Record kinds the replayer reads. The raw `declaration` records are dropped:
+#: they are the replay payload, they stay in the transcript for audit, and no
+#: panel displays them. The `action` records already carry the rationale.
 KEPT_KINDS = frozenset(
     {"scenario", "state", "action", "resolution", "narrative", "prompt", "end"}
 )

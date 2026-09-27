@@ -1,27 +1,20 @@
+"""The narrator reads the world and writes about it. It cannot change it."""
+
+import asyncio
 import random
 
 from casus import narrator, rules
-from casus.llm import LLMError, LLMResult
 from casus.state import Action, Resolution
-from helpers import make_region, make_world
+from helpers import FakeEngine, make_region, make_world
 
 
-def _returns(text: str):
-    def call(model, messages, **kwargs):
-        return LLMResult(
-            text=text, raw={}, model=model or "m", prompt_tokens=1, completion_tokens=1
-        )
-
-    return call
+def _dispatch(lines):
+    return {"lines": lines}
 
 
-def _capture(seen: dict, text: str = "Quiet day on the strait."):
-    def call(model, messages, **kwargs):
-        seen["system"] = messages[0]["content"]
-        seen["prompt"] = messages[-1]["content"]
-        return LLMResult(text=text, raw={}, model="m", prompt_tokens=1, completion_tokens=1)
-
-    return call
+def _narrate(world, resolutions=(), engine=None):
+    engine = engine or FakeEngine(_dispatch([{"actor": "ATK", "text": "Quiet day."}]))
+    return asyncio.run(narrator.narrate(world, list(resolutions), engine)), engine
 
 
 # --- the invariant this module exists for -----------------------------------
@@ -29,81 +22,83 @@ def _capture(seen: dict, text: str = "Quiet day on the strait."):
 
 def test_narrator_cannot_mutate_state(world):
     before = world.digest()
-    narrator.narrate(world, [], call=_returns('{"set": {"DEF": {"fuel_days": 999}}}'))
+    _narrate(world)
     assert world.digest() == before
 
 
-def test_narrator_has_no_write_path_at_all(world):
-    """Not just "it did not write this time": the signature returns a string, so
-    there is nowhere for a state change to go."""
-    result = narrator.narrate(world, [], call=_returns("Nothing happened."))
-    assert isinstance(result, str)
+def test_narrator_returns_a_string_and_nothing_else(world):
+    text, _ = _narrate(world)
+    assert isinstance(text, str)
 
 
-def test_structured_output_is_refused_rather_than_passed_through(world):
-    text = narrator.narrate(world, [], call=_returns('{"headline": "War!"}'))
-    assert "structured data" in text
-    assert "War!" not in text
+def test_a_dispatch_can_only_be_attributed_to_an_actor_that_exists(world):
+    """In the first Caribbean run the narrator credited an action to the wrong
+    country. An enum cannot stop it choosing wrongly, but it stops it inventing
+    a party that is not in the game."""
+    schema = narrator.dispatch_model(tuple(sorted(world.actors)))
+    line = next(iter(schema.model_json_schema()["$defs"].values()))
+    assert line["properties"]["actor"]["enum"] == sorted(world.actors)
 
 
-def test_a_reasoning_block_is_stripped_from_the_dispatch(world):
-    text = narrator.narrate(
-        world, [], call=_returns("<think>what angle do I take</think>Tankers turned back.")
+def test_the_dispatch_is_capped_so_it_cannot_run_away(world):
+    schema = narrator.dispatch_model(tuple(sorted(world.actors)))
+    assert schema.model_json_schema()["properties"]["lines"]["maxItems"] == narrator.MAX_LINES
+
+
+def test_every_line_is_attributed_in_the_rendered_text(world):
+    text, _ = _narrate(
+        world,
+        engine=FakeEngine(
+            _dispatch(
+                [
+                    {"actor": "ATK", "text": "Tankers turned back."},
+                    {"actor": "DEF", "text": "The island dug in."},
+                ]
+            )
+        ),
     )
-    assert text == "Tankers turned back."
+    assert "ATK: Tankers turned back." in text
+    assert "DEF: The island dug in." in text
 
 
-def test_a_failing_model_does_not_kill_the_run(world):
-    """Narration is decoration. A run that dies because the correspondent timed
-    out would be worse than a run with a missing paragraph."""
-
-    def explodes(model, messages, **kwargs):
-        raise LLMError("gateway timeout")
-
-    text = narrator.narrate(world, [], call=explodes)
-    assert "no dispatch" in text
+def test_an_empty_line_is_dropped_rather_than_printed_bare(world):
+    text, _ = _narrate(
+        world,
+        engine=FakeEngine(
+            _dispatch([{"actor": "ATK", "text": "  "}, {"actor": "DEF", "text": "Held."}])
+        ),
+    )
+    assert text == "DEF: Held."
 
 
 # --- what the correspondent is told -----------------------------------------
 
 
 def test_the_prompt_carries_the_resolutions_verbatim(world):
-    seen: dict = {}
-    narrator.narrate(
-        world,
-        [Resolution(kind="fuel_exhausted", actor="DEF", reason="the island ran dry")],
-        call=_capture(seen),
+    _, engine = _narrate(
+        world, [Resolution(kind="fuel_exhausted", actor="DEF", reason="the island ran dry")]
     )
-    assert "the island ran dry" in seen["prompt"]
-    assert "fuel_exhausted" in seen["prompt"]
+    assert "the island ran dry" in engine.prompts[0]
+    assert "fuel_exhausted" in engine.prompts[0]
 
 
 def test_bookkeeping_events_are_kept_out_of_the_news(world):
-    seen: dict = {}
-    narrator.narrate(
-        world,
-        [
-            Resolution(
-                kind="escalation", actor="ATK", reason="reached rung 6 with 'air_campaign'"
-            )
-        ],
-        call=_capture(seen),
+    _, engine = _narrate(
+        world, [Resolution(kind="escalation", actor="ATK", reason="reached rung 6")]
     )
-    assert "reached rung 6" not in seen["prompt"]
-    assert "Nothing material was resolved" in seen["prompt"]
+    assert "reached rung 6" not in engine.prompts[0]
+    assert "Nothing material was resolved" in engine.prompts[0]
 
 
 def test_an_empty_turn_is_described_as_such(world):
-    seen: dict = {}
-    narrator.narrate(world, [], call=_capture(seen))
-    assert "Nothing material was resolved" in seen["prompt"]
+    _, engine = _narrate(world)
+    assert "Nothing material was resolved" in engine.prompts[0]
 
 
-def test_the_prompt_reports_the_standing_position_of_every_actor(world):
-    seen: dict = {}
-    narrator.narrate(world, [], call=_capture(seen))
+def test_the_prompt_names_every_actor_by_identifier(world):
+    _, engine = _narrate(world)
     for actor_id in world.actors:
-        assert actor_id in seen["prompt"]
+        assert f"  {actor_id} (" in engine.prompts[0]
 
 
 def test_empty_sea_zones_are_left_out_of_the_civilian_summary():
@@ -113,16 +108,9 @@ def test_empty_sea_zones_are_left_out_of_the_civilian_summary():
             "sea-1": make_region("sea-1", "", name="Open sea", terrain="sea", population=0),
         }
     )
-    seen: dict = {}
-    narrator.narrate(world, [], call=_capture(seen))
-    assert "Capital" in seen["prompt"]
-    assert "Open sea" not in seen["prompt"]
-
-
-def test_the_correspondent_is_told_not_to_invent_numbers(world):
-    seen: dict = {}
-    narrator.narrate(world, [], call=_capture(seen))
-    assert "no invented numbers" in seen["system"]
+    _, engine = _narrate(world)
+    assert "Capital" in engine.prompts[0]
+    assert "Open sea" not in engine.prompts[0]
 
 
 def test_the_dispatch_describes_the_turn_that_just_resolved():
@@ -132,6 +120,5 @@ def test_the_dispatch_describes_the_turn_that_just_resolved():
     resolved, resolutions = rules.resolve(
         state, [Action(actor="ATK", type="sanction")], random.Random(1)
     )
-    seen: dict = {}
-    narrator.narrate(resolved, resolutions, call=_capture(seen))
-    assert seen["prompt"].startswith("DAY 5.")
+    _, engine = _narrate(resolved, resolutions)
+    assert engine.prompts[0].startswith("DAY 5.")

@@ -78,3 +78,48 @@ def make_world(
         forces=forces,
         relations=relations or {"ATK>DEF": -60, "DEF>ATK": -60},
     )
+
+
+class FakeEngine:
+    """Stands in for a lingo Engine in tests.
+
+    Validates a canned payload against whatever schema the caller asks for, so a
+    test that hands it an impossible declaration fails the same way the real
+    provider would, rather than sliding through.
+    """
+
+    def __init__(self, reply=None):
+        self.reply = (
+            reply
+            if reply is not None
+            else {
+                "actions": [{"type": "hold"}],
+                "rationale": "wait",
+                "assessment": "they wait too",
+            }
+        )
+        self.prompts: list[str] = []
+        self.schemas: list[type] = []
+
+    async def create(self, context, schema, *instructions):
+        prompt = context.messages[-1].content
+        self.prompts.append(prompt)
+        self.schemas.append(schema)
+        payload = self.reply(prompt) if callable(self.reply) else self.reply
+        return schema.model_validate(payload)
+
+
+def scripted(per_actor: dict[str, dict] | None = None, default: dict | None = None):
+    """A reply function keyed on the actor named in the prompt."""
+    per_actor = per_actor or {}
+    fallback = default or {
+        "actions": [{"type": "hold"}],
+        "rationale": "wait",
+        "assessment": "nothing",
+    }
+
+    def reply(prompt: str) -> dict:
+        actor = prompt.split("You are ")[1].split("(")[1].split(")")[0]
+        return per_actor.get(actor, fallback)
+
+    return reply

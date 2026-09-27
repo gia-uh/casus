@@ -20,7 +20,7 @@ students who want to re-run it on a laptop against a local 27–32B model.
 
 Two checks the suite cannot make, so they are commands a person runs:
 
-- `uv run python -m casus.llm --smoke` — the configured endpoint really answers.
+- `uv run casus run scenarios/smoke.yaml --turns 1` — the endpoint really answers.
 - Open the bundled HTML in a browser and step through it. A green suite does not
   catch a map that renders at zero height.
 
@@ -37,7 +37,10 @@ that is the moment to stop and reread the design doc.
 
 ## Where everything lives
 
-- `src/casus/` — the six modules. `README.md` has the one-line responsibility of each.
+- `src/casus/` — the modules. `README.md` has the one-line responsibility of each.
+  There is no LLM plumbing here: `lingo` owns the transport, the structured call
+  and the parsing. A model that returns something unusable is a lingo bug and
+  gets fixed in lingo, not worked around here.
 - `tests/` — one file per concern; `test_rules_*.py` is split by rule family.
 - `scenarios/` — YAML data, never code. `smoke.yaml` ships; class scenarios live
   outside the repo behind the gitignored `scenarios/private` link, and the
