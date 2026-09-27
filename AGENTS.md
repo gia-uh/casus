@@ -3,9 +3,7 @@
 ## What this repo is
 
 A multi-agent LLM wargame harness with a deterministic resolver. `README.md` is the
-user view. The design and the reason behind each rule live in
-`vault/Atlas/Architecture/2026-09-27-casus-wargame-harness-design.md`; the task
-breakdown is in `vault/Atlas/Architecture/plans/2026-09-27-casus-implementation-plan.md`.
+user view. `DESIGN.md` holds the architecture and the reason behind each rule.
 
 It exists to be shown and run in front of an audience of non-engineers. That shapes
 every trade-off: legibility of the transcript beats cleverness, and a recorded run
@@ -41,8 +39,9 @@ that is the moment to stop and reread the design doc.
 
 - `src/casus/` — the six modules. `README.md` has the one-line responsibility of each.
 - `tests/` — one file per concern; `test_rules_*.py` is split by rule family.
-- `scenarios/` — YAML data, never code. `SOURCES.md` maps every `source:` key to a
-  file in `vault/Sources/`.
+- `scenarios/` — YAML data, never code. `smoke.yaml` ships; class scenarios live
+  outside the repo behind the gitignored `scenarios/private` link, and the
+  provenance tests skip when it does not resolve. See `scenarios/README.md`.
 - `ui/` — `replay.html` and the generated `worldmap.json`.
 - `tools/` — one-shot generators. Their output is committed; they are not imported.
 - `runs/` — recorded transcripts kept for the class.

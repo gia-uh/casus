@@ -1,21 +1,26 @@
 import json
 import pathlib
 
+from scenariopaths import PRIVATE_SCENARIOS, all_scenarios, requires_private
+
 from casus.scenario import Scenario
 
 ROOT = pathlib.Path(__file__).parent.parent
 WORLDMAP = ROOT / "ui" / "worldmap.json"
-CARIBBEAN = ROOT / "scenarios" / "caribbean-2026.yaml"
 
 
 def _worldmap() -> dict:
     return json.loads(WORLDMAP.read_text())
 
 
-def test_worldmap_covers_every_country_the_scenario_references():
+@requires_private
+def test_worldmap_covers_every_country_the_scenarios_reference():
+    """Only private scenarios name real countries; the shipped smoke scenario
+    uses invented ones on purpose."""
     worldmap = _worldmap()
-    for iso in Scenario.load(CARIBBEAN).country_codes():
-        assert iso in worldmap["countries"], f"{iso} missing from worldmap.json"
+    for path in PRIVATE_SCENARIOS:
+        for iso in Scenario.load(path).country_codes():
+            assert iso in worldmap["countries"], f"{path.name}: {iso} is not in worldmap.json"
 
 
 def test_cubas_outline_survived_simplification():
@@ -32,25 +37,28 @@ def test_the_projection_is_declared_so_the_replayer_can_place_markers():
     assert projection["width"] / projection["height"] == 2.0
 
 
-def test_every_centroid_in_the_scenario_lands_inside_the_viewbox():
+def test_every_centroid_in_every_scenario_lands_inside_the_viewbox():
     worldmap = _worldmap()
     width, height = worldmap["projection"]["width"], worldmap["projection"]["height"]
-    for region in Scenario.load(CARIBBEAN).initial_state().regions.values():
-        lat, lon = region.centroid
-        x = (lon + 180.0) / 360.0 * width
-        y = (90.0 - lat) / 180.0 * height
-        assert 0 <= x <= width, f"{region.id} projects off the map horizontally"
-        assert 0 <= y <= height, f"{region.id} projects off the map vertically"
+    for path in all_scenarios():
+        for region in Scenario.load(path).initial_state().regions.values():
+            lat, lon = region.centroid
+            x = (lon + 180.0) / 360.0 * width
+            y = (90.0 - lat) / 180.0 * height
+            assert 0 <= x <= width, f"{path.name}: {region.id} projects off horizontally"
+            assert 0 <= y <= height, f"{path.name}: {region.id} projects off vertically"
 
 
-def test_caribbean_centroids_sit_in_the_caribbean():
+def test_every_scenario_keeps_its_regions_in_one_theatre():
     """A transposed lat/lon pair still projects inside the viewBox, so bounds
-    alone would not catch it. Every region in this scenario belongs in a box
-    around the Caribbean."""
-    for region in Scenario.load(CARIBBEAN).initial_state().regions.values():
-        lat, lon = region.centroid
-        assert 15.0 <= lat <= 30.0, f"{region.id} latitude {lat} is not Caribbean"
-        assert -90.0 <= lon <= -70.0, f"{region.id} longitude {lon} is not Caribbean"
+    alone would not catch it. Regions that belong to one scenario have to sit
+    within a plausible theatre of each other."""
+    for path in all_scenarios():
+        regions = list(Scenario.load(path).initial_state().regions.values())
+        lats = [r.centroid[0] for r in regions]
+        lons = [r.centroid[1] for r in regions]
+        assert max(lats) - min(lats) < 40.0, f"{path.name} spans too much latitude"
+        assert max(lons) - min(lons) < 60.0, f"{path.name} spans too much longitude"
 
 
 def test_every_path_is_closed():

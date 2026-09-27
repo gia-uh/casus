@@ -19,9 +19,9 @@ the text that produced each decision.
 ```bash
 uv sync
 export CASUS_BASE_URL=https://openrouter.ai/api/v1
-export CASUS_API_KEY_FILE=~/.claude/openrouter.token
-uv run casus run scenarios/caribbean-2026.yaml --seed 42 --out runs/run-42.jsonl
-uv run casus replay runs/run-42.jsonl
+export CASUS_API_KEY_FILE=~/.config/openrouter.token
+uv run casus run scenarios/smoke.yaml --seed 42 --out runs/run-42.jsonl
+uv run casus verify runs/run-42.jsonl
 uv run casus bundle runs/run-42.jsonl --out demo.html
 ```
 
@@ -52,8 +52,12 @@ uv run python -m casus.llm --smoke
 | `llm.py` | One POST against any OpenAI-compatible endpoint |
 | `bundle.py` | Transcript + map → one self-contained HTML replayer |
 
-Scenarios are YAML under `scenarios/`. Every force count and population figure
-carries a `source:` key resolving to an entry in `scenarios/SOURCES.md`.
+Scenarios are YAML under `scenarios/`. `smoke.yaml` ships with the engine and is
+not a model of anything. Scenarios built for a particular class or study are kept
+outside the repo — they carry sourced figures about real states and belong with
+the people who can read them in context. `scenarios/README.md` says how to point
+the engine at them, and the provenance tests run against them when they are
+present.
 
 ## What it is not
 
@@ -71,6 +75,15 @@ Three, each mechanically checkable:
 2. **External branch agreement.** The scenario's branches are compared against a
    published open-source analysis, not against our own expectations.
 3. **Physical plausibility.** Emitted quantities sit inside ranges from cited
-   public sources.
+   public sources. A scenario states its sources or fails its own test suite.
 
-MIT licensed. Built for a class on how AI is used in defence analysis.
+## Where the numbers come from
+
+Nothing in this repo is classified, and nothing in it came from anywhere but the
+open record. A scenario that carries figures about real states carries a
+`source:` key on every one of them, resolving to a document a reader can open. A
+run that cannot say where its numbers came from is not evidence of anything, and
+this is the mechanism that keeps that honest.
+
+MIT licensed. Built at the AI research group of the University of Havana for a
+class on how AI is used in defence analysis and strategic simulation.

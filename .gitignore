@@ -5,3 +5,11 @@ __pycache__/
 .ruff_cache/
 dist/
 runs/*.local.jsonl
+
+# Class scenarios are not published. `scenarios/private` is a link to wherever
+# they are kept; see scenarios/README.md.
+scenarios/private
+runs/
+
+# Downloaded source data for the map generator
+.cache/
