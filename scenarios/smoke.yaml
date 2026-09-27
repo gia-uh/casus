@@ -114,3 +114,5 @@ forces:
 relations:
   BLUE>GREEN: -55
   GREEN>BLUE: -70
+
+narrator_model: qwen/qwen3-32b

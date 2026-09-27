@@ -165,6 +165,10 @@ class Scenario:
     def briefing(self, actor_id: str) -> str:
         return str(self.actors[actor_id]["briefing"])
 
+    def narrator_model(self) -> str:
+        """Model for the news ticker. Empty means the endpoint's default."""
+        return str(self.raw.get("narrator_model", "") or "")
+
     def model(self, actor_id: str) -> str:
         return str(self.actors[actor_id]["model"])
 

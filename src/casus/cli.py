@@ -6,7 +6,7 @@ import argparse
 import pathlib
 import sys
 
-from . import engine
+from . import engine, narrator
 from .scenario import Scenario, ScenarioError
 
 
@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_cmd.add_argument(
         "--turns", type=int, default=None, help="override the scenario's turn count"
+    )
+    run_cmd.add_argument(
+        "--no-narrate",
+        action="store_true",
+        help="skip the per-turn news ticker (one fewer model call per turn)",
     )
 
     replay_cmd = sub.add_parser("replay", help="re-derive a run from its transcript")
@@ -50,7 +55,14 @@ def _run(args) -> int:
         else pathlib.Path("runs") / f"{scenario.name}-{args.seed}.jsonl"
     )
     print(f"casus: {scenario.name}, seed {args.seed}, {args.turns or scenario.turns} turns")
-    summary = engine.run(scenario, seed=args.seed, out=out, turns=args.turns)
+    narrate = None
+    if not args.no_narrate:
+        model = str(scenario.raw.get("narrator_model", "")) or ""
+
+        def narrate(state, resolutions):
+            return narrator.narrate(state, resolutions, model=model)
+
+    summary = engine.run(scenario, seed=args.seed, out=out, turns=args.turns, narrate=narrate)
 
     print(f"casus: wrote {out}")
     print(
