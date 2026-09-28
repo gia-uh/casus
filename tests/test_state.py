@@ -15,13 +15,23 @@ def _world(**overrides) -> WorldState:
             "DEF": Actor(id="DEF", name="Defender", resources={"support": 70.0}),
         },
         places={
-            "r1": Place(id="r1", name="One", owner="DEF", adjacency=("r2",),
-                        attrs={"infra": 100.0, "lat": 23.1, "terrain": "urban"}),
+            "r1": Place(
+                id="r1",
+                name="One",
+                owner="DEF",
+                adjacency=("r2",),
+                attrs={"infra": 100.0, "lat": 23.1, "terrain": "urban"},
+            ),
             "r2": Place(id="r2", name="Two", owner="ATK", adjacency=("r1",), attrs={}),
         },
         entities=(
-            Entity(id="f1", owner="DEF", kind="ground", place="r1",
-                   attrs={"strength": 50.0, "posture": "garrison"}),
+            Entity(
+                id="f1",
+                owner="DEF",
+                kind="ground",
+                place="r1",
+                attrs={"strength": 50.0, "posture": "garrison"},
+            ),
         ),
         events=(Event(id="attacked", detail={"place": "r1"}),),
     )
@@ -33,8 +43,18 @@ def test_the_state_module_names_no_domain_concept():
     """v1 had fuel_days, munitions, isr and five force kinds in the type. A
     generalised engine that still mentions them has not generalised."""
     source = pathlib.Path(state.__file__).read_text()
-    for leaked in ("fuel", "munitions", "isr", "air_defense", "legitimacy",
-                   "escalation", "reserve_pool", "terrain", "posture", "rung"):
+    for leaked in (
+        "fuel",
+        "munitions",
+        "isr",
+        "air_defense",
+        "legitimacy",
+        "escalation",
+        "reserve_pool",
+        "terrain",
+        "posture",
+        "rung",
+    ):
         assert leaked not in source.lower(), f"state.py still knows about {leaked}"
 
 
@@ -58,8 +78,12 @@ def test_digest_is_independent_of_key_insertion_order():
 
 def test_digest_changes_when_a_number_changes():
     world = _world()
-    touched = _world(actors={**world.actors,
-                             "DEF": Actor(id="DEF", name="Defender", resources={"support": 69.0})})
+    touched = _world(
+        actors={
+            **world.actors,
+            "DEF": Actor(id="DEF", name="Defender", resources={"support": 69.0}),
+        }
+    )
     assert touched.digest() != world.digest(), "a digest that ignores a resource is not a check"
 
 
@@ -71,16 +95,24 @@ def test_an_actor_with_an_arbitrary_resource_name_round_trips():
 def test_a_string_attribute_round_trips_and_moves_the_digest():
     world = _world()
     assert WorldState.from_json(world.to_json()).entities[0].attrs["posture"] == "garrison"
-    hardened = _world(entities=(
-        Entity(id="f1", owner="DEF", kind="ground", place="r1",
-               attrs={"strength": 50.0, "posture": "hardened"}),
-    ))
+    hardened = _world(
+        entities=(
+            Entity(
+                id="f1",
+                owner="DEF",
+                kind="ground",
+                place="r1",
+                attrs={"strength": 50.0, "posture": "hardened"},
+            ),
+        )
+    )
     assert hardened.digest() != world.digest()
 
 
 def test_action_round_trips_through_json():
-    a = Action(actor="ATK", type="invade", place="r1", target="DEF",
-               entities=("f1",), intensity=3)
+    a = Action(
+        actor="ATK", type="invade", place="r1", target="DEF", entities=("f1",), intensity=3
+    )
     assert Action.from_json(a.to_json()) == a
 
 

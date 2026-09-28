@@ -83,7 +83,11 @@ class Entity:
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Entity:
         return cls(
-            id=d["id"], owner=d["owner"], kind=d["kind"], place=d["place"], attrs=dict(d["attrs"])
+            id=d["id"],
+            owner=d["owner"],
+            kind=d["kind"],
+            place=d["place"],
+            attrs=dict(d["attrs"]),
         )
 
 
