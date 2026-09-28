@@ -18,6 +18,7 @@ from lingo import Context, Engine, Message
 from . import display
 from .actions import MAX_ACTIONS_PER_TURN, declaration_model, describe, to_actions
 from .proxy import State
+from .resolver import RuleFailed
 from .scenario import Scenario
 from .state import Action, WorldState
 
@@ -59,7 +60,7 @@ def offered_actions(scenario: Scenario, world: WorldState, actor: str, rng) -> O
             for t, spec in scenario.actions.items()
         }
     s = State(world, rng, scenario.resource_bounds(), scenario.attribute_bounds())
-    return dict(scenario.ruleset.offer(s.read_only("offer"), actor))
+    return dict(_hook(scenario.ruleset.offer, "offer", actor, s.read_only("offer")))
 
 
 def believed(scenario: Scenario, world: WorldState, actor: str, rng) -> WorldState:
@@ -67,9 +68,19 @@ def believed(scenario: Scenario, world: WorldState, actor: str, rng) -> WorldSta
     if scenario.ruleset.view is None:
         return world
     s = State(world, rng, scenario.resource_bounds(), scenario.attribute_bounds()).scratch()
-    scenario.ruleset.view(s, actor)
+    _hook(scenario.ruleset.view, "view", actor, s)
     # Last turn's events are public, and a fresh working copy starts without them.
     return dataclasses.replace(s.freeze(), events=world.events)
+
+
+def _hook(fn, kind: str, actor: str, s: State):
+    """Run a scenario hook, reporting a failure the way a failing rule is."""
+    try:
+        return fn(s, actor)
+    except Exception as exc:  # a scenario's bug, reported with the hook's name
+        raise RuleFailed(
+            f"@{kind} '{fn.__name__}' failed for {actor}: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 @dataclasses.dataclass(frozen=True)

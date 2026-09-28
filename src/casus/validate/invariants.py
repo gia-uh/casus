@@ -21,11 +21,11 @@ import itertools
 import random
 from collections import defaultdict
 
-from ..players import offered_actions
 from ..resolver import RuleFailed, resolve
 from ..scenario import Scenario
-from ..state import Action, WorldState
+from ..state import WorldState
 from . import Finding
+from .policy import holding, sample
 
 Samples = dict[tuple[str, str], list[float]]
 
@@ -55,29 +55,6 @@ def _sample(world: WorldState, names: set[str], into: Samples) -> None:
             into[(f"entity {entity.id}", name)].append(float(entity.attrs[name]))
 
 
-def _choose(scenario: Scenario, world: WorldState, rng: random.Random) -> list[Action]:
-    actions = []
-    places = tuple(world.places)
-    for actor in sorted(scenario.actors):
-        offered = offered_actions(scenario, world, actor, random.Random(0))
-        if not offered:
-            continue
-        action_type = rng.choice(sorted(offered))
-        spec = scenario.actions[action_type]
-        fields = spec.get("fields") or ()
-        place = None
-        if "place" in fields:
-            place = rng.choice(tuple(offered[action_type] or places))
-        others = [a for a in sorted(scenario.actors) if a != actor]
-        target = rng.choice(others) if "target" in fields and others else None
-        own = [e.id for e in world.entities if e.owner == actor]
-        entities = (rng.choice(own),) if "entities" in fields and own else ()
-        lo, hi = spec.get("intensity", (1, 1))
-        intensity = rng.randint(int(lo), int(hi)) if "intensity" in fields else 1
-        actions.append(Action(actor, action_type, place, target, entities, intensity))
-    return actions
-
-
 def _run(scenario: Scenario, turns: int, seed: int, policy, names: set[str]):
     rng = random.Random(seed)
     choices = random.Random(seed + 7919)
@@ -99,12 +76,6 @@ def _run(scenario: Scenario, turns: int, seed: int, policy, names: set[str]):
     return samples
 
 
-def _holding(scenario: Scenario, world: WorldState, rng: random.Random) -> list[Action]:
-    if "hold" not in scenario.actions:
-        return []
-    return [Action(actor=a, type="hold") for a in sorted(scenario.actors)]
-
-
 def check_invariants(
     scenario: Scenario, turns: int = 12, random_runs: int = 8, seed: int = 0
 ) -> list[Finding]:
@@ -113,24 +84,26 @@ def check_invariants(
         return []
     names = set(two_way)
     try:
-        holding = _run(scenario, turns, seed, _holding, names)
-        runs = [holding] + [
-            _run(scenario, turns, seed + 1 + i, _choose, names) for i in range(random_runs)
+        holding_run = _run(scenario, turns, seed, holding, names)
+        runs = [holding_run] + [
+            _run(scenario, turns, seed + 1 + i, sample, names) for i in range(random_runs)
         ]
     except RuleFailed as exc:
         return [Finding("rule-error", str(exc), scenario.origin)]
 
     findings = []
+    moved: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for samples in runs:
+        for key, values in samples.items():
+            for before, after in itertools.pairwise(values):
+                if after > before:
+                    moved[key].add("rose")
+                elif after < before:
+                    moved[key].add("fell")
+
     for name in sorted(names):
-        rose = fell = False
-        for samples in runs:
-            for (_, quantity), values in samples.items():
-                if quantity != name:
-                    continue
-                for before, after in itertools.pairwise(values):
-                    rose |= after > before
-                    fell |= after < before
-        missing = [word for word, happened in (("rose", rose), ("fell", fell)) if not happened]
+        directions = set().union(*(d for (_, q), d in moved.items() if q == name))
+        missing = [word for word in ("rose", "fell") if word not in directions]
         if missing:
             findings.append(
                 Finding(
@@ -138,22 +111,28 @@ def check_invariants(
                     f"'{name}' is declared monotone: false but never "
                     f"{' and never '.join(missing)} across {len(runs)} runs of {turns} turns "
                     "(one holding, the rest random); nothing in the rules can move it "
-                    f"{'up' if not rose else 'down'}",
+                    f"{'up' if 'rose' in missing else 'down'}",
                     scenario.origin,
                 )
             )
 
-    for (holder, name), values in sorted(holding.items()):
+    # Pinned: driven to a bound in the holding run, and no run ever moves that
+    # holder's value back the other way. Easing to a floor something can raise
+    # again is not pinned.
+    for (holder, name), values in sorted(holding_run.items()):
         lo, hi = two_way[name]
-        for bound in (lo, hi):
-            pinned = len(values) >= 3 and values[0] != bound and values[-1] == values[-2] == bound
-            if pinned:
-                reached = next(i for i, v in enumerate(values) if v == bound)
+        for bound, away in ((lo, "rose"), (hi, "fell")):
+            reached = (
+                len(values) >= 3 and values[0] != bound and values[-1] == values[-2] == bound
+            )
+            if reached and away not in moved[(holder, name)]:
+                turn = next(i for i, v in enumerate(values) if v == bound)
                 findings.append(
                     Finding(
                         "pinned-at-bound",
                         f"'{name}' of {holder} reached its bound {bound:g} on turn "
-                        f"{reached + 1} of the holding run and stayed there to the end",
+                        f"{turn + 1} of the holding run, stayed there, and no run ever "
+                        f"moved it back",
                         scenario.origin,
                     )
                 )

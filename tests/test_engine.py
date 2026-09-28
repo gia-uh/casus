@@ -1,6 +1,7 @@
 """The turn loop, the transcript, the ledger inside it, and replay."""
 
 import copy
+import dataclasses
 import json
 
 import pytest
@@ -72,7 +73,9 @@ def _apply(state: dict, mutation: dict) -> None:
     elif name == "place":
         next(e for e in state["entities"] if e["id"] == ident)["place"] = mutation["after"]
     else:
-        next(e for e in state["entities"] if e["id"] == ident)["attrs"][name] = mutation["after"]
+        next(e for e in state["entities"] if e["id"] == ident)["attrs"][name] = mutation[
+            "after"
+        ]
 
 
 def _without_bookkeeping(state: dict) -> dict:
@@ -199,7 +202,9 @@ def test_prompts_are_written_in_a_stable_actor_order(tmp_path):
 
 
 def test_two_runs_with_the_same_seed_and_script_are_identical():
-    assert [s.digest() for s in _run(seed=9).states] == [s.digest() for s in _run(seed=9).states]
+    assert [s.digest() for s in _run(seed=9).states] == [
+        s.digest() for s in _run(seed=9).states
+    ]
 
 
 def test_a_narrator_is_optional_and_recorded_when_present(tmp_path):
@@ -238,3 +243,23 @@ def test_a_rule_that_raises_is_recorded_and_the_run_stops(tmp_path):
 def test_run_without_an_output_path_still_returns_a_summary():
     summary = _run(turns=1)
     assert isinstance(summary.final, WorldState)
+
+
+def test_a_hook_that_raises_is_recorded_naming_the_hook(tmp_path):
+    scenario = _smoke()
+    broken = Scenario(
+        data=scenario.data,
+        rules_source=scenario.rules_source,
+        ruleset=dataclasses.replace(scenario.ruleset, view=_peek_at_morale),
+        origin="broken",
+        module=scenario.module,
+    )
+    out = tmp_path / "run.jsonl"
+    with pytest.raises(engine.RuleFailed):
+        engine.run(broken, seed=1, out=out, engines=_engines(broken), turns=1)
+    (error,) = [r for r in _records(out) if r["kind"] == "error"]
+    assert "_peek_at_morale" in error["error"] and "morale" in error["error"]
+
+
+def _peek_at_morale(s, actor):
+    _ = s.actor(actor).morale

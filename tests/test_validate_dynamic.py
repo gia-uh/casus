@@ -117,7 +117,8 @@ def test_a_rule_that_writes_module_state_is_caught_at_run_time_too():
 
 def test_the_report_carries_the_trajectory_and_the_ledger():
     report = dry_run(SMOKE, turns=2)
-    assert len(report.trajectory) == 3
+    # two holding turns, then one cover turn per declared action type
+    assert len(report.trajectory) == 1 + 2 + len(SMOKE.actions)
     assert report.findings == []
     assert any(m.rule == "upkeep" for m in report.ledger)
 
@@ -138,10 +139,86 @@ def test_the_cross_process_check_runs_once_per_scenario_content(monkeypatch):
             pass
     """)
     calls = []
-    real = dynamic.subprocess.run
+    real = dynamic.subprocess.Popen
     monkeypatch.setattr(
-        dynamic.subprocess, "run", lambda *a, **k: calls.append(1) or real(*a, **k)
+        dynamic.subprocess, "Popen", lambda *a, **k: calls.append(1) or real(*a, **k)
     )
     dry_run(scenario)
     dry_run(scenario)
     assert len(calls) == len(dynamic.HASH_SEEDS)
+
+
+# --- final review: what the dry run must reach beyond holding turns ---------
+
+
+def test_a_rule_on_an_action_is_exercised_by_the_dry_run():
+    findings = dry_run(
+        _scenario_with_rule("""
+        @rule(phase="contest", on="raid")
+        def lost(s, a):
+            s.place("atlantis")
+    """)
+    ).findings
+    assert [f.code for f in findings] == ["unknown-place"]
+
+
+def test_a_nondeterministic_rule_on_an_action_is_caught():
+    findings = dry_run(
+        _scenario_with_rule(
+            """
+        @rule(phase="contest", on="deploy")
+        def wobbly(s, a):
+            for i, ident in enumerate({p.id for p in s.places}):
+                s.add(s.place(ident).infra, -i)
+    """,
+            places=PLACES,
+        )
+    ).findings
+    assert "nondeterministic" in [f.code for f in findings]
+
+
+def test_the_view_and_offer_hooks_run_in_the_dry_run():
+    source = SMOKE.rules_source.replace("@view\ndef fog", "def fog") + textwrap.dedent("""
+
+        @view
+        def peek(s, actor):
+            s.actor(actor).morale
+    """)
+    findings = dry_run(Scenario.from_parts(SMOKE.data, source)).findings
+    assert "unknown-resource" in [f.code for f in findings]
+
+
+def test_a_path_that_skips_the_proxy_is_caught_by_replaying_the_ledger():
+    """The static check forbids the known ways; this catches the rest by
+    comparing the world with what the ledger says happened."""
+    import types
+
+    from casus.ruleset import RuleSet, rule
+
+    module = types.ModuleType("sneaky")
+
+    @rule(phase="consequences")
+    def sneaky(s):
+        s._places["border"]["attrs"]["infra"] = 5.0
+
+    module.sneaky = sneaky
+    scenario = Scenario(data=SMOKE.data, rules_source="", ruleset=RuleSet.from_module(module),
+                        origin="sneaky", module=module)  # fmt: skip
+    findings = dry_run(scenario).findings
+    assert "ledger-mismatch" in [f.code for f in findings]
+    assert "place.border.infra" in next(
+        f.message for f in findings if f.code == "ledger-mismatch"
+    )
+
+
+def test_a_print_in_a_rule_does_not_break_the_cross_process_check():
+    assert (
+        dry_run(
+            _scenario_with_rule("""
+        @rule(phase="consequences")
+        def chatty(s):
+            print("infra now", [p.infra for p in s.places])
+    """)
+        ).findings
+        == []
+    )

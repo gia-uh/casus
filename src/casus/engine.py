@@ -148,7 +148,11 @@ async def run_async(
         for _ in range(total_turns):
             order = sorted(players)
             # Draws first, in a fixed order: this is where determinism lives.
-            views = {a: players[a].view(state, rng) for a in order}
+            try:
+                views = {a: players[a].view(state, rng) for a in order}
+            except RuleFailed as exc:
+                transcript.write({"kind": "error", "turn": state.turn, "error": str(exc)})
+                raise
             for actor_id in order:
                 prompt, offered = views[actor_id]
                 transcript.write(
