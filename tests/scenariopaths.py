@@ -35,3 +35,17 @@ requires_private = pytest.mark.skipif(
 
 def all_scenarios() -> list[pathlib.Path]:
     return [SMOKE, *PRIVATE_SCENARIOS]
+
+
+#: v2 scenarios are directories holding a scenario.yaml, shipped or private.
+PRIVATE_DIRS = (
+    sorted(p.parent for p in PRIVATE.glob("*/scenario.yaml")) if PRIVATE.is_dir() else []
+)
+requires_private_dirs = pytest.mark.skipif(
+    not PRIVATE_DIRS, reason="no scenarios/private link; class scenarios are not published"
+)
+
+
+def scenario_dirs() -> list[pathlib.Path]:
+    shipped = sorted(p.parent for p in SCENARIOS.glob("*/scenario.yaml"))
+    return [*shipped, *PRIVATE_DIRS]

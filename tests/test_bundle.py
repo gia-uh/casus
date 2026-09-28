@@ -3,13 +3,12 @@ import pathlib
 
 import pytest
 
-from casus import bundle
-from casus.v1 import engine
-from casus.v1.scenario import Scenario
+from casus import bundle, engine
+from casus.scenario import Scenario
 from helpers import FakeEngine
 
 ROOT = pathlib.Path(__file__).parent.parent
-SMOKE = ROOT / "scenarios" / "smoke.yaml"
+SMOKE = ROOT / "scenarios" / "reference"
 
 
 def _engines(scenario, reply=None):
@@ -115,3 +114,15 @@ def test_the_bundled_script_is_syntactically_valid(transcript, tmp_path):
         [node, "--check", str(js)], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0 and not result.stderr, result.stderr[:400]
+
+
+def test_the_bundle_carries_events_not_v1_resolutions(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert "event" in bundle.KEPT_KINDS
+    assert '"kind":"resolution"' not in html
+
+
+def test_the_ledger_stays_in_the_transcript_and_out_of_the_bundle(transcript, tmp_path):
+    """Mutations are the audit trail, and the heaviest records; no panel reads them."""
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert '"kind":"mutation"' not in html

@@ -68,6 +68,12 @@ DISPLAY = {
         "intl_legitimacy": {40: "low", 70: "moderate", math.inf: "high"},
     },
     "labels": {
+        "en": {
+            "fuel_days": "fuel-days",
+            "intl_legitimacy": "legitimacy",
+            "domestic_support": "support",
+            "air_campaign": "air campaign",
+        },
         "es": {
             "fuel_days": "combustible (días)",
             "fuel_inflow": "entrada de combustible",
@@ -83,7 +89,51 @@ DISPLAY = {
             "civilian_distress": "sufrimiento civil",
             "population": "población",
             "terrain": "terreno",
-        }
+            "hold": "mantener",
+            "statement": "declaración",
+            "negotiate": "negociar",
+            "concede": "ceder",
+            "sanction": "sancionar",
+            "supply": "abastecer",
+            "mobilize": "movilizar",
+            "deploy": "desplegar",
+            "disperse": "dispersar",
+            "harden": "fortificar",
+            "blockade": "bloquear",
+            "cyber": "ciberataque",
+            "covert": "operación encubierta",
+            "strike": "ataque",
+            "air_campaign": "campaña aérea",
+            "invade": "invadir",
+        },
+    },
+    # The viewer's bars scale to the declared bounds; fuel has none, so it says
+    # what a full bar means.
+    "scale": {"fuel_days": 300},
+    "map": {
+        "country": "country",
+        "zone": {"terrain": "sea"},
+        "ring": "civilian_distress",
+        "size": "strength",
+    },
+    "emphasis": {
+        "hard": [
+            "exchange",
+            "air_defence_suppressed",
+            "insufficient_occupation_force",
+            "fuel_exhausted",
+            "insurgency_formed",
+            "unopposed",
+        ],
+        "soft": ["supply_delivered", "mobilized", "legitimacy_cost", "air_defence_degraded"],
+    },
+    # Sanity checks score.py reports; the bounds are the model's own, not a
+    # published range.
+    "plausibility": {
+        "intl_legitimacy": {"min": 0, "max": 100, "source": "model-bounds"},
+        "domestic_support": {"min": 0, "max": 100, "source": "model-bounds"},
+        "political_capital": {"min": 0, "max": 100, "source": "model-bounds"},
+        "fuel_days": {"min": 0, "source": "model-bounds"},
     },
     "ladder": {"resource": "escalation_rung", "en": list(RUNG_NAMES), "es": RUNG_NAMES_ES},
     "unreported": ["escalation"],
