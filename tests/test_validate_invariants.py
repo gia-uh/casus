@@ -3,6 +3,7 @@
 import textwrap
 
 import pytest
+import yaml
 from scenariopaths import SCENARIOS
 
 from casus.scenario import Scenario
@@ -126,3 +127,36 @@ def test_a_quantity_that_starts_at_its_bound_is_not_pinned():
 @pytest.mark.parametrize("name", ["smoke", "reference"])
 def test_the_shipped_scenarios_hold_their_invariants(name):
     assert check_invariants(Scenario.load(SCENARIOS / name)) == []
+
+
+def test_a_quantity_that_eases_linearly_to_its_floor_is_not_pinned():
+    """Final review: `s.add(p.distress, -5)` reaches zero exactly, where decay
+    never does. Reaching the floor while everyone holds is correct when
+    something can raise it again."""
+    findings = check_invariants(_scenario_with(
+        attributes={"distress": {"min": 0, "max": 100, "monotone": False}},
+        rules='''
+            @rule(phase="contest", on="strike")
+            def harm(s, a):
+                s.add(s.place(a.place).distress, 10 * a.intensity)
+                s.emit("attacked", place=a.place)
+
+            @rule(phase="consequences")
+            def ease(s):
+                for p in s.places:
+                    if not s.happened("attacked", place=p.id):
+                        s.add(p.distress, -5)
+        '''))  # fmt: skip
+    assert findings == []
+
+
+def test_the_gate_rejects_the_reference_physics_when_the_ratchet_is_declared():
+    """The evidence the spec cares about, in CI: the reference ruleset as ported
+    from v1 cannot raise domestic support or lower distress."""
+    reference = Scenario.load(SCENARIOS / "reference")
+    data = yaml.safe_load(yaml.safe_dump(reference.data))
+    data["resources"]["domestic_support"]["monotone"] = False
+    data["attributes"]["civilian_distress"]["monotone"] = False
+    findings = check_invariants(Scenario.from_parts(data, reference.rules_source))
+    monotone = {f.message.split("'")[1] for f in findings if f.code == "monotone-quantity"}
+    assert monotone == {"domestic_support", "civilian_distress"}
