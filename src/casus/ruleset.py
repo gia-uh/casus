@@ -2,8 +2,9 @@
 
 A rule is a function decorated with `@rule(phase=..., on=...)`. Rules run in the
 five phases in a fixed order, and in declaration order within a phase. A rule
-with `on=` runs once per matching action and receives it; a rule without runs
-once per turn and reads `s.actions` if it needs them.
+with `on=` (one action type or a tuple of them) runs once per matching action and
+receives it; a rule without runs once per turn and reads `s.actions` if it needs
+them.
 
 `@offer` and `@view` are the player-side hooks: what an actor may declare, and
 what it believes the world looks like.
@@ -25,16 +26,17 @@ _HOOK = "_casus_hook"
 class Rule:
     name: str
     phase: str
-    on: str | None
+    on: tuple[str, ...] | None
     fn: Callable
 
 
-def rule(phase: str, on: str | None = None) -> Callable[[Callable], Callable]:
+def rule(phase: str, on: str | tuple[str, ...] | None = None) -> Callable[[Callable], Callable]:
     if phase not in PHASES:
         raise ValueError(f"unknown phase '{phase}'; the phases are {', '.join(PHASES)}")
 
     def decorate(fn: Callable) -> Callable:
-        setattr(fn, _RULE, Rule(name=fn.__name__, phase=phase, on=on, fn=fn))
+        types_ = (on,) if isinstance(on, str) else (tuple(on) if on else None)
+        setattr(fn, _RULE, Rule(name=fn.__name__, phase=phase, on=types_, fn=fn))
         return fn
 
     return decorate

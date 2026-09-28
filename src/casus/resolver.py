@@ -92,7 +92,7 @@ def resolve(
                 _invoke(s, r, phase, None)
                 continue
             for action in s.actions:
-                if action.type != r.on or s.rejected(action):
+                if action.type not in r.on or s.rejected(action):
                     continue
                 _invoke(s, r, phase, action)
 

@@ -45,7 +45,7 @@ def test_a_rule_remembers_the_action_type_it_runs_on():
 
     module.bombing = bombing
     (only,) = RuleSet.from_module(module).for_phase("contest")
-    assert (only.name, only.on) == ("bombing", "strike")
+    assert (only.name, only.on) == ("bombing", ("strike",))
 
 
 def test_hooks_are_found_and_absent_hooks_are_none():
@@ -86,3 +86,17 @@ def test_a_view_hook_is_registered():
 
     module.fog = fog
     assert RuleSet.from_module(module).view is fog
+
+
+def test_a_rule_may_run_on_several_action_types():
+    """v1's legality check is one function over every action type, and reject()
+    needs the action it rejects, so one rule has to cover several types."""
+    module = types.ModuleType("m")
+
+    @rule(phase="legality", on=("strike", "invade"))
+    def needs_platforms(s, a):
+        pass
+
+    module.needs_platforms = needs_platforms
+    (only,) = RuleSet.from_module(module).for_phase("legality")
+    assert only.on == ("strike", "invade")

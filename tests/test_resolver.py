@@ -194,3 +194,13 @@ def test_the_turn_advances_and_the_events_travel_with_the_state():
     assert world.turn == 2
     assert [e.id for e in world.events] == ["hit"] == [e.id for e in events]
     assert ledger and ledger[0].rule == "_jitter"
+
+
+def test_a_rule_on_several_types_runs_for_each_of_them():
+    hits = []
+    _run([("contest", ("strike", "invade"), lambda s, a: hits.append(a.type))],
+         actions=[Action(actor="ATK", type="strike", place="capital"),
+                  Action(actor="ATK", type="invade", place="capital"),
+                  Action(actor="DEF", type="hold")],
+         declared={**_declared("strike", "invade"), "hold": {"fields": []}})  # fmt: skip
+    assert hits == ["invade", "strike"]
