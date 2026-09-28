@@ -1,0 +1,87 @@
+name: smoke
+turns: 3
+language: en
+description: >
+  The smallest scenario that touches the whole engine: two actors, a border
+  between them, one unit each. Used for development, for the manual end-to-end
+  check, and as the fixture the test suite leans on. It is not a model of
+  anything, and its rules exist to exercise every call a rule can make.
+
+resources:
+  stamina: {min: 0, max: 100, monotone: false}
+  supplies: {min: 0, monotone: false}
+
+attributes:
+  infra: {min: 0, max: 100, monotone: false}
+  strength: {min: 0}
+
+actions:
+  hold:
+    fields: []
+    rung: 0
+    description: Take no action this turn.
+  resupply:
+    fields: [target]
+    rung: 0
+    description: Send five units of supplies to another actor.
+  deploy:
+    fields: [place, entities]
+    rung: 1
+    description: Move named units of yours into a place.
+  raid:
+    fields: [place, intensity]
+    intensity: [1, 3]
+    rung: 2
+    description:
+      en: Raid a place within reach of one of your units.
+      es: Asaltar un lugar al alcance de una de tus unidades.
+
+actors:
+  BLUE:
+    name: Blue
+    model: qwen/qwen3-32b
+    resources: {stamina: 80, supplies: 40}
+    briefing: |
+      You are Blue. Keep the border quiet if you can and make Red pay if you
+      cannot. Your public tires of raids faster than of supply bills.
+  RED:
+    name: Red
+    model: qwen/qwen3-32b
+    resources: {stamina: 60, supplies: 12}
+    briefing: |
+      You are Red. You hold the border place, Blue wants it back, and you are
+      short of supplies.
+
+places:
+  b-home:
+    name: Blue Home
+    owner: BLUE
+    adjacency: [border]
+    attrs: {infra: 100, lat: 10.0, lon: -60.0}
+  border:
+    name: The Border
+    owner: RED
+    adjacency: [b-home, r-home]
+    attrs: {infra: 70, lat: 10.5, lon: -61.0}
+  r-home:
+    name: Red Home
+    owner: RED
+    adjacency: [border]
+    attrs: {infra: 100, lat: 11.0, lon: -62.0}
+
+entities:
+  - {id: blue-1, owner: BLUE, kind: unit, place: b-home, attrs: {strength: 20, posture: garrison}}
+  - {id: red-1, owner: RED, kind: unit, place: r-home, attrs: {strength: 15, posture: garrison}}
+
+display:
+  standing: [stamina, supplies]
+  bands:
+    supplies: {10: short, 30: adequate, .inf: plentiful}
+  labels:
+    es: {stamina: aguante, supplies: suministros}
+  ladder:
+    en: [calm, manoeuvre, raids]
+    es: [calma, maniobra, asaltos]
+  unreported: []
+  plausibility:
+    stamina: {min: 0, max: 100, source: smoke-is-not-a-model}

@@ -4,7 +4,7 @@ import pathlib
 import pytest
 
 from casus import bundle, engine
-from casus.scenario import Scenario
+from casus.v1.scenario import Scenario
 from helpers import FakeEngine
 
 ROOT = pathlib.Path(__file__).parent.parent

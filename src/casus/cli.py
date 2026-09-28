@@ -9,7 +9,7 @@ import sys
 from . import bundle as bundle_mod
 from . import engine
 from . import score as score_mod
-from .scenario import Scenario, ScenarioError
+from .v1.scenario import Scenario, ScenarioError
 
 
 def main(argv: list[str] | None = None) -> int:

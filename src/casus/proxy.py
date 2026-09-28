@@ -296,7 +296,7 @@ class State:
         attribute_bounds: dict[str, tuple[float, float]] | None = None,
     ):
         self.turn = world.turn
-        self.rng = rng
+        self._rng = rng
         self._resource_bounds = dict(resource_bounds or {})
         self._attribute_bounds = dict(attribute_bounds or {})
         self._actors = {
@@ -410,6 +410,11 @@ class State:
         )
 
     # --- reading --------------------------------------------------------
+
+    @property
+    def rng(self) -> random.Random:
+        """The one seeded generator. The only randomness a rule may use."""
+        return self._rng
 
     def actor(self, ident: str) -> ActorView:
         if ident not in self._actors:

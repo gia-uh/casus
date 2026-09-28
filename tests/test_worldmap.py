@@ -3,7 +3,7 @@ import pathlib
 
 from scenariopaths import PRIVATE_SCENARIOS, all_scenarios, requires_private
 
-from casus.scenario import Scenario
+from casus.v1.scenario import Scenario
 
 ROOT = pathlib.Path(__file__).parent.parent
 WORLDMAP = ROOT / "ui" / "worldmap.json"

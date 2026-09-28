@@ -27,8 +27,8 @@ from lingo import LLM, Engine
 
 from . import narrator
 from .players import Player, PlayerTurn
-from .scenario import Scenario
 from .v1 import rules
+from .v1.scenario import Scenario
 from .v1.state import Action, Resolution, WorldState
 
 RECORD_KINDS = frozenset(

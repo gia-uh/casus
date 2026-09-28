@@ -4,7 +4,7 @@ import pathlib
 import pytest
 
 from casus import engine
-from casus.scenario import Scenario
+from casus.v1.scenario import Scenario
 from helpers import FakeEngine, scripted
 
 SMOKE = pathlib.Path(__file__).parent.parent / "scenarios" / "smoke.yaml"
