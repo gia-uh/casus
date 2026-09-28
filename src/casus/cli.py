@@ -7,9 +7,9 @@ import pathlib
 import sys
 
 from . import bundle as bundle_mod
-from . import engine
+from . import display, engine
 from . import score as score_mod
-from .v1.scenario import Scenario, ScenarioError
+from .scenario import Scenario, ScenarioError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_cmd = sub.add_parser("run", help="play a scenario against the configured endpoint")
-    run_cmd.add_argument("scenario")
+    run_cmd.add_argument("scenario", help="a scenario directory")
     run_cmd.add_argument("--seed", type=int, default=1)
     run_cmd.add_argument(
         "--out", default=None, help="transcript path (default runs/<name>-<seed>.jsonl)"
@@ -89,10 +89,12 @@ def _run(args) -> int:
     print(f"casus: wrote {out}")
     print(f"casus: {summary.turns} turns")
     for actor_id, actor in sorted(summary.final.actors.items()):
-        print(
-            f"  {actor_id}: rung {actor.escalation_rung}, fuel {actor.fuel_days:.0f}d, "
-            f"legitimacy {actor.intl_legitimacy:.0f}, support {actor.domestic_support:.0f}"
+        standing = ", ".join(
+            f"{display.label(scenario, k)} {display.number(actor.resources[k])}"
+            for k in display.standing(scenario)
+            if k in actor.resources
         )
+        print(f"  {actor_id}: {standing}")
     return 0
 
 

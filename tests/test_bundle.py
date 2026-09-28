@@ -3,7 +3,8 @@ import pathlib
 
 import pytest
 
-from casus import bundle, engine
+from casus import bundle
+from casus.v1 import engine
 from casus.v1.scenario import Scenario
 from helpers import FakeEngine
 

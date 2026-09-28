@@ -1,6 +1,7 @@
 import pathlib
 
-from casus import engine, score
+from casus import score
+from casus.v1 import engine
 from casus.v1.scenario import Scenario
 from helpers import FakeEngine, scripted
 
