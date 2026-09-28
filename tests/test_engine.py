@@ -71,7 +71,7 @@ def test_replay_needs_nothing_but_the_transcript(tmp_path):
 
 
 def _corrupt_fuel(path: pathlib.Path, turn: int) -> None:
-    from casus.state import WorldState
+    from casus.v1.state import WorldState
 
     lines = []
     for line in path.read_text().splitlines():

@@ -7,7 +7,6 @@ harness accepted from a model and then rejected at the resolver.
 import pytest
 from pydantic import ValidationError
 
-from casus import rules
 from casus.actions import (
     DESCRIPTIONS,
     FIELDS,
@@ -16,7 +15,8 @@ from casus.actions import (
     to_actions,
     vocabulary_matches_the_engine,
 )
-from casus.state import ACTION_TYPES
+from casus.v1 import rules
+from casus.v1.state import ACTION_TYPES
 
 REGIONS = ("capital", "inland", "sea-1")
 ACTORS = ("ATK", "DEF", "THIRD")

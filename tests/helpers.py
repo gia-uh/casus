@@ -7,7 +7,7 @@ itself.
 
 from __future__ import annotations
 
-from casus.state import ActorState, Force, RegionState, WorldState
+from casus.v1.state import ActorState, Force, RegionState, WorldState
 
 
 def make_actor(actor_id: str, **overrides) -> ActorState:

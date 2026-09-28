@@ -22,7 +22,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from .state import ACTION_TYPES, Action
+from .v1.state import ACTION_TYPES, Action
 
 MAX_ACTIONS_PER_TURN = 3
 

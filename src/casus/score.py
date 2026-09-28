@@ -20,8 +20,9 @@ import collections
 import dataclasses
 import pathlib
 
-from . import engine, rules
-from .state import RUNG_NAMES, WorldState
+from . import engine
+from .v1 import rules
+from .v1.state import RUNG_NAMES, WorldState
 
 
 @dataclasses.dataclass

@@ -19,9 +19,9 @@ import random
 
 from lingo import Context, Engine, Message
 
-from . import rules
 from .actions import MAX_ACTIONS_PER_TURN, declaration_model, to_actions
-from .state import RUNG_NAMES, Action, WorldState
+from .v1 import rules
+from .v1.state import RUNG_NAMES, Action, WorldState
 
 SYSTEM_PROMPT = (
     "You are the national command authority of one state in a strategic crisis "

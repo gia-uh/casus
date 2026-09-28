@@ -7,8 +7,9 @@ import random
 import pytest
 from pydantic import ValidationError
 
-from casus import narrator, rules
-from casus.state import Action, Resolution
+from casus import narrator
+from casus.v1 import rules
+from casus.v1.state import Action, Resolution
 from helpers import FakeEngine, make_region, make_world
 
 

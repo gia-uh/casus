@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 
-from .state import ActorState, Force, RegionState, WorldState
+from .v1.state import ActorState, Force, RegionState, WorldState
 
 TERRAINS = frozenset({"urban", "rural", "coastal", "sea"})
 FORCE_KINDS = frozenset({"ground", "air", "naval", "air_defense", "irregular"})

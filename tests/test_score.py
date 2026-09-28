@@ -57,7 +57,7 @@ def test_reproducibility_is_checked_by_actually_replaying(tmp_path):
 def test_a_tampered_transcript_scores_as_not_reproducible(tmp_path):
     import json
 
-    from casus.state import WorldState
+    from casus.v1.state import WorldState
 
     out = _run(tmp_path)
     lines = []

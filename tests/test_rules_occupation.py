@@ -1,7 +1,7 @@
 import random
 
-from casus import rules
-from casus.state import Action
+from casus.v1 import rules
+from casus.v1.state import Action
 from helpers import make_actor, make_force, make_region, make_world
 
 #: Populations used below. Ten million and 2.1 million are the orders of magnitude the

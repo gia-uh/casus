@@ -25,10 +25,11 @@ from collections.abc import Iterator
 
 from lingo import LLM, Engine
 
-from . import narrator, rules
+from . import narrator
 from .players import Player, PlayerTurn
 from .scenario import Scenario
-from .state import Action, Resolution, WorldState
+from .v1 import rules
+from .v1.state import Action, Resolution, WorldState
 
 RECORD_KINDS = frozenset(
     {"scenario", "state", "prompt", "declaration", "action", "resolution", "narrative", "end"}

@@ -23,7 +23,7 @@ import functools
 from lingo import Context, Engine, Message
 from pydantic import ConfigDict, Field, create_model
 
-from .state import RUNG_NAMES, Resolution, WorldState
+from .v1.state import RUNG_NAMES, Resolution, WorldState
 
 SYSTEM_PROMPT = (
     "You are a wire-service correspondent covering an international crisis. You "

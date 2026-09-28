@@ -11,8 +11,8 @@ import random
 import pytest
 from pydantic import ValidationError
 
-from casus import rules
 from casus.players import Player, build_prompt
+from casus.v1 import rules
 from helpers import FakeEngine, make_actor, make_force, make_region, make_world
 
 
@@ -134,7 +134,7 @@ def test_the_prompt_carries_the_briefing_verbatim():
 
 
 def test_the_prompt_reports_last_turns_resolutions():
-    from casus.state import Action
+    from casus.v1.state import Action
 
     world = make_world()
     resolved, _ = rules.resolve(world, [Action(actor="ATK", type="sanction")], random.Random(1))

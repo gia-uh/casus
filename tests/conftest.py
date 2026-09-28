@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from casus.state import WorldState
+from casus.v1.state import WorldState
 from helpers import make_force, make_world
 
 

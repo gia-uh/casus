@@ -10,8 +10,8 @@ from scenariopaths import (
     requires_private,
 )
 
-from casus import rules
 from casus.scenario import Scenario, ScenarioError
+from casus.v1 import rules
 
 
 def _slugs(path) -> set[str]:

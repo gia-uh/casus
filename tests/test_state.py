@@ -1,79 +1,95 @@
+"""The world as data, with no domain vocabulary."""
+
 import json
+import pathlib
 
-from casus.state import (
-    ACTION_TYPES,
-    ESCALATION_RUNGS,
-    RUNG_NAMES,
-    Action,
-    Resolution,
-    WorldState,
-)
-from helpers import make_force, make_region, make_world
+from casus import state
+from casus.state import Action, Actor, Entity, Event, Place, WorldState
 
 
-def test_world_state_round_trips_through_json(world):
+def _world(**overrides) -> WorldState:
+    base = dict(
+        turn=1,
+        actors={
+            "ATK": Actor(id="ATK", name="Attacker", resources={"support": 60.0}),
+            "DEF": Actor(id="DEF", name="Defender", resources={"support": 70.0}),
+        },
+        places={
+            "r1": Place(id="r1", name="One", owner="DEF", adjacency=("r2",),
+                        attrs={"infra": 100.0, "lat": 23.1, "terrain": "urban"}),
+            "r2": Place(id="r2", name="Two", owner="ATK", adjacency=("r1",), attrs={}),
+        },
+        entities=(
+            Entity(id="f1", owner="DEF", kind="ground", place="r1",
+                   attrs={"strength": 50.0, "posture": "garrison"}),
+        ),
+        events=(Event(id="attacked", detail={"place": "r1"}),),
+    )
+    base.update(overrides)
+    return WorldState(**base)
+
+
+def test_the_state_module_names_no_domain_concept():
+    """v1 had fuel_days, munitions, isr and five force kinds in the type. A
+    generalised engine that still mentions them has not generalised."""
+    source = pathlib.Path(state.__file__).read_text()
+    for leaked in ("fuel", "munitions", "isr", "air_defense", "legitimacy",
+                   "escalation", "reserve_pool", "terrain", "posture", "rung"):
+        assert leaked not in source.lower(), f"state.py still knows about {leaked}"
+
+
+def test_world_state_round_trips_through_json():
+    world = _world()
     assert WorldState.from_json(world.to_json()) == world
 
 
-def test_round_trip_survives_a_json_text_encode_decode(world):
+def test_round_trip_survives_a_json_text_encode_decode():
+    world = _world()
     reloaded = WorldState.from_json(json.loads(json.dumps(world.to_json())))
     assert reloaded == world
     assert reloaded.digest() == world.digest()
 
 
 def test_digest_is_independent_of_key_insertion_order():
-    a = make_world(regions={"r1": make_region("r1", "DEF"), "r2": make_region("r2", "ATK")})
-    b = make_world(regions={"r2": make_region("r2", "ATK"), "r1": make_region("r1", "DEF")})
+    a = _world()
+    b = _world(places=dict(reversed(list(_world().places.items()))))
     assert a.digest() == b.digest()
 
 
-def test_digest_changes_when_a_number_changes(world):
-    before = world.digest()
-    touched = world.replace_forces(
-        tuple(
-            f if f.owner != "DEF" else make_force("DEF", "ground", region="r1", strength=49.0)
-            for f in world.forces
-        )
-    )
-    assert touched.digest() != before, "a digest that ignores strength is not a check"
+def test_digest_changes_when_a_number_changes():
+    world = _world()
+    touched = _world(actors={**world.actors,
+                             "DEF": Actor(id="DEF", name="Defender", resources={"support": 69.0})})
+    assert touched.digest() != world.digest(), "a digest that ignores a resource is not a check"
 
 
-def test_every_action_type_has_a_rung_and_every_rung_has_a_name():
-    assert set(ESCALATION_RUNGS) == set(ACTION_TYPES)
-    assert set(ESCALATION_RUNGS.values()) <= set(range(len(RUNG_NAMES)))
-    assert len(RUNG_NAMES) == 8
+def test_an_actor_with_an_arbitrary_resource_name_round_trips():
+    world = _world(actors={"X": Actor(id="X", name="X", resources={"grain_stock": 12.5})})
+    assert WorldState.from_json(world.to_json()).actors["X"].resources == {"grain_stock": 12.5}
 
 
-def test_action_rung_comes_from_the_ladder_not_from_a_literal():
-    for action_type in ACTION_TYPES:
-        action = Action(actor="ATK", type=action_type)
-        assert action.rung == ESCALATION_RUNGS[action_type]
-
-
-def test_invade_is_the_top_rung_and_hold_is_the_bottom():
-    assert ESCALATION_RUNGS["invade"] == len(RUNG_NAMES) - 1
-    assert ESCALATION_RUNGS["hold"] == 0
+def test_a_string_attribute_round_trips_and_moves_the_digest():
+    world = _world()
+    assert WorldState.from_json(world.to_json()).entities[0].attrs["posture"] == "garrison"
+    hardened = _world(entities=(
+        Entity(id="f1", owner="DEF", kind="ground", place="r1",
+               attrs={"strength": 50.0, "posture": "hardened"}),
+    ))
+    assert hardened.digest() != world.digest()
 
 
 def test_action_round_trips_through_json():
-    a = Action(actor="ATK", type="invade", region="r1", forces=("ATK-ground-1",), intensity=3)
+    a = Action(actor="ATK", type="invade", place="r1", target="DEF",
+               entities=("f1",), intensity=3)
     assert Action.from_json(a.to_json()) == a
 
 
-def test_resolution_round_trips_through_json():
-    r = Resolution(kind="fuel_exhausted", actor="DEF", reason="no fuel", detail={"days": 0})
-    assert Resolution.from_json(r.to_json()) == r
-
-
-def test_forces_of_and_forces_in_filter_independently(world):
-    assert {f.owner for f in world.forces_of("DEF")} == {"DEF"}
-    assert {f.region for f in world.forces_in("sea-1")} == {"sea-1"}
-
-
-def test_relation_defaults_to_zero_for_an_unknown_pair(world):
-    assert world.relation("ATK", "DEF") == -60
-    assert world.relation("CN", "RU") == 0
-
-
-def test_regions_of_returns_only_the_owners_regions(world):
-    assert {r.id for r in world.regions_of("DEF")} == {"r1"}
+def test_entity_order_is_part_of_the_state():
+    """Spawned entities append. Order decides which one a rule finds first, so
+    it must survive a round trip."""
+    two = (
+        Entity(id="b", owner="DEF", kind="ground", place="r1", attrs={}),
+        Entity(id="a", owner="DEF", kind="ground", place="r1", attrs={}),
+    )
+    world = _world(entities=two)
+    assert [e.id for e in WorldState.from_json(world.to_json()).entities] == ["b", "a"]
