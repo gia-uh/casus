@@ -13,3 +13,6 @@ runs/
 
 # Downloaded source data for the map generator
 .cache/
+
+# brainstorming visual companion
+.superpowers/
