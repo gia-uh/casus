@@ -50,6 +50,8 @@ class Scenario:
     rules_source: str
     ruleset: RuleSet
     origin: str = ""
+    #: The module the rules were executed into, for reading a ruleset's constants.
+    module: types.ModuleType | None = dataclasses.field(default=None, compare=False, repr=False)
 
     # --- loading --------------------------------------------------------
 
@@ -81,11 +83,13 @@ class Scenario:
     @classmethod
     def from_parts(cls, data: dict[str, Any], rules_source: str, origin: str = "") -> Scenario:
         _check_structure(data)
+        module = load_rules(rules_source, origin or "<rules.py>")
         return cls(
             data=data,
             rules_source=rules_source,
-            ruleset=RuleSet.from_module(load_rules(rules_source, origin or "<rules.py>")),
+            ruleset=RuleSet.from_module(module),
             origin=origin,
+            module=module,
         )
 
     # --- what the engine reads -----------------------------------------

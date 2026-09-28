@@ -1,6 +1,7 @@
 import random
 
-from casus.v1 import rules
+from reference_rules import rules, to_action
+
 from casus.v1.state import Action
 from helpers import make_actor, make_force, make_region, make_world
 
@@ -79,7 +80,7 @@ def test_adjacency_puts_a_region_within_reach():
 def test_an_unknown_region_is_rejected_by_name():
     world = make_world()
     _, res = _resolve(world, [Action(actor="ATK", type="strike", region="atlantis")])
-    assert _rejections(res)[0].reason == "unknown region 'atlantis'"
+    assert _rejections(res)[0].reason == "unknown place 'atlantis'"
 
 
 def test_an_unknown_actor_is_rejected_by_name():
@@ -122,7 +123,7 @@ def test_a_rejection_carries_the_whole_action_so_the_player_can_learn_from_it():
     world = make_world()
     action = Action(actor="ATK", type="invade", region="r1", intensity=3)
     _, res = _resolve(world, [action])
-    assert _rejections(res)[0].detail["action"] == action.to_json()
+    assert _rejections(res)[0].detail["action"] == to_action(action).to_json()
 
 
 def test_a_legal_action_alongside_an_illegal_one_still_happens():
@@ -156,7 +157,7 @@ def test_a_decorative_region_on_a_statement_is_dropped_rather_than_rejected():
 def test_an_unknown_region_on_an_action_that_needs_one_is_still_rejected():
     world = make_world(forces=(make_force("ATK", "air", region="sea-1"),))
     _, res = _resolve(world, [Action(actor="ATK", type="air_campaign", region="atlantis")])
-    assert _rejections(res)[0].reason == "unknown region 'atlantis'"
+    assert _rejections(res)[0].reason == "unknown place 'atlantis'"
 
 
 def test_negotiate_and_sanction_ignore_a_region_entirely():

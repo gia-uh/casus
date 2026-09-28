@@ -1,6 +1,7 @@
 import random
 
-from casus.v1 import rules
+from reference_rules import rules
+
 from casus.v1.state import Action
 from helpers import make_force, make_region, make_world
 

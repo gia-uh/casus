@@ -3,7 +3,8 @@
 import pathlib
 import random
 
-from casus.v1 import rules
+from reference_rules import rules
+
 from casus.v1.state import Action
 from helpers import make_actor, make_force, make_world
 
