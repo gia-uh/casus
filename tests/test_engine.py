@@ -160,18 +160,41 @@ def test_two_runs_with_the_same_seed_and_script_are_identical(tmp_path):
 
 
 def test_a_narrator_is_optional_and_recorded_when_present(tmp_path):
+    """The correspondent returns one predicate per reportable fact, so the fake
+    answers with however many the turn actually produced."""
     out = tmp_path / "run.jsonl"
     scenario = _scenario()
     engine.run(
         scenario,
         seed=1,
         out=out,
-        engines=_engines(scenario),
-        narrator_engine=FakeEngine({"lines": [{"actor": "BLUE", "text": "Quiet day."}]}),
+        engines=_engines(
+            scenario,
+            scripted(
+                {
+                    "BLUE": {
+                        "actions": [{"type": "mobilize", "region": "b-coast"}],
+                        "rationale": "call up",
+                        "assessment": "",
+                    }
+                }
+            ),
+        ),
+        narrator_engine=FakeEngine(
+            lambda prompt: {"predicates": ["called up reserves"] * _facts(prompt)}
+        ),
         turns=1,
     )
     narrative = next(r for r in _records(out) if r["kind"] == "narrative")
-    assert "Quiet day." in narrative["text"]
+    assert "called up reserves" in narrative["text"]
+    # the subject comes from the record, not from the model
+    assert narrative["text"].startswith("Blue ")
+
+
+def _facts(prompt: str) -> int:
+    """How many numbered facts the correspondent was given."""
+    block = prompt.split("Standing position")[0]
+    return sum(1 for line in block.splitlines() if line.strip()[:2].rstrip(".").isdigit())
 
 
 def test_run_without_an_output_path_still_returns_a_summary():

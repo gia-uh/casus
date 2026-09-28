@@ -32,6 +32,23 @@ SYSTEM_PROMPT = (
     "`assessment`."
 )
 
+#: Appended when the scenario is not in English. The field names stay English —
+#: they are a wire format, not prose — but everything the model writes is read by
+#: the room, so it is written in the room's language.
+LANGUAGE_NOTE = (
+    "Write `rationale` and `assessment` in {language}. Keep the field names and "
+    "the action identifiers exactly as given; only the prose is translated."
+)
+
+LANGUAGE_NAMES = {"en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "French"}
+
+
+def system_prompt(language: str) -> str:
+    if language == "en":
+        return SYSTEM_PROMPT
+    name = LANGUAGE_NAMES.get(language, language)
+    return SYSTEM_PROMPT + " " + LANGUAGE_NOTE.format(language=name)
+
 
 @dataclasses.dataclass(frozen=True)
 class PlayerTurn:
@@ -49,6 +66,7 @@ class Player:
     briefing: str
     model: str
     engine: Engine
+    language: str = "en"
 
     def view(self, state: WorldState, rng: random.Random) -> tuple[str, tuple[str, ...]]:
         """What this actor sees, and what it may say.
@@ -67,7 +85,7 @@ class Player:
         schema = declaration_model(
             self.actor_id, legal, tuple(state.regions), tuple(sorted(state.actors))
         )
-        context = Context([Message.system(SYSTEM_PROMPT), Message.user(prompt)])
+        context = Context([Message.system(system_prompt(self.language)), Message.user(prompt)])
         declaration = await self.engine.create(context, schema)
         return PlayerTurn(
             actions=to_actions(declaration, self.actor_id),

@@ -109,6 +109,7 @@ async def run_async(
             briefing=scenario.briefing(actor_id),
             model=scenario.model(actor_id),
             engine=engines[actor_id],
+            language=scenario.language(),
         )
         for actor_id in scenario.actors
     }
@@ -123,6 +124,7 @@ async def run_async(
             "seed": seed,
             "turns": total_turns,
             "name": scenario.name,
+            "language": scenario.language(),
             # The whole scenario travels inside the transcript, so a replay needs
             # nothing but this one file.
             "scenario": scenario.raw,
@@ -165,7 +167,9 @@ async def run_async(
                     }
                 )
             if narrator_engine is not None:
-                text = await narrator.narrate(state, resolutions, narrator_engine)
+                text = await narrator.narrate(
+                    state, resolutions, narrator_engine, scenario.language()
+                )
                 transcript.write({"kind": "narrative", "turn": state.turn - 1, "text": text})
 
             _write_state(transcript, state)

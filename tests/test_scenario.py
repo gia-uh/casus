@@ -151,3 +151,20 @@ def test_the_occupation_requirement_is_consistent_with_the_populations():
             required = rules.occupation_requirement(region.population)
             assert required > 0
             assert required == region.population // rules.INHABITANTS_PER_SECURITY_MEMBER
+
+
+def test_a_scenario_declares_its_language_and_defaults_to_english():
+    from casus.scenario import Scenario as S
+
+    assert S.load(SMOKE).language() == "en"
+    for path in PRIVATE_SCENARIOS:
+        assert len(S.load(path).language()) >= 2
+
+
+def test_the_language_reaches_the_prompt_the_model_is_given():
+    """A rationale the room cannot read is a rationale the room cannot check."""
+    from casus.players import system_prompt
+
+    assert "Spanish" in system_prompt("es")
+    assert "Spanish" not in system_prompt("en")
+    assert system_prompt("en").endswith("`assessment`.")
