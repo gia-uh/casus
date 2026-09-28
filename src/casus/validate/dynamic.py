@@ -126,7 +126,20 @@ def _module_state(scenario: Scenario, before: dict[str, object]) -> list[Finding
     ]
 
 
+#: Cross-process results by scenario content. The check costs two interpreter
+#: starts and its answer depends only on the data, the rules, the turns and the
+#: seed, so one process never pays twice for the same scenario.
+_CROSS_PROCESS: dict[str, list[Finding]] = {}
+
+
 def _cross_process(scenario: Scenario, turns: int, seed: int) -> list[Finding]:
+    key = json.dumps([scenario.data, scenario.rules_source, turns, seed], sort_keys=True)
+    if key not in _CROSS_PROCESS:
+        _CROSS_PROCESS[key] = _run_cross_process(scenario, turns, seed)
+    return list(_CROSS_PROCESS[key])
+
+
+def _run_cross_process(scenario: Scenario, turns: int, seed: int) -> list[Finding]:
     payload = json.dumps(
         {"data": scenario.data, "rules_source": scenario.rules_source, "turns": turns,
          "seed": seed}

@@ -125,3 +125,23 @@ def test_the_report_carries_the_trajectory_and_the_ledger():
 @pytest.mark.parametrize("name", ["smoke", "reference"])
 def test_the_shipped_scenarios_pass_the_dry_run(name):
     assert dry_run(Scenario.load(SCENARIOS / name), turns=2).findings == []
+
+
+def test_the_cross_process_check_runs_once_per_scenario_content(monkeypatch):
+    """Its result depends only on the data and the rules, and it costs two
+    interpreter starts, so loading the same scenario twice pays once."""
+    from casus.validate import dynamic
+
+    scenario = _scenario_with_rule("""
+        @rule(phase="upkeep")
+        def unique_to_this_test(s):
+            pass
+    """)
+    calls = []
+    real = dynamic.subprocess.run
+    monkeypatch.setattr(
+        dynamic.subprocess, "run", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    dry_run(scenario)
+    dry_run(scenario)
+    assert len(calls) == len(dynamic.HASH_SEEDS)
