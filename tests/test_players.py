@@ -80,7 +80,9 @@ def test_the_schema_handed_to_lingo_only_contains_the_offered_types():
 
 
 def test_a_declaration_the_actor_was_not_offered_is_refused_by_the_type():
-    player = _player(reply={"actions": [{"type": "teleport"}], "rationale": "", "assessment": ""})
+    player = _player(
+        reply={"actions": [{"type": "teleport"}], "rationale": "", "assessment": ""}
+    )
     prompt, offered = player.view(SMOKE.initial_state(), random.Random(1))
     with pytest.raises(ValidationError):
         asyncio.run(player.decide(SMOKE.initial_state(), prompt, offered))
@@ -130,3 +132,11 @@ def test_a_declaration_becomes_engine_actions_owned_by_the_actor():
     turn = asyncio.run(player.decide(SMOKE.initial_state(), prompt, offered))
     assert [(a.actor, a.type) for a in turn.actions] == [("BLUE", "hold")]
     assert (turn.rationale, turn.assessment) == ("r", "a")
+
+
+def test_the_language_reaches_the_prompt_the_model_is_given():
+    """A rationale the room cannot read is a rationale the room cannot check."""
+    from casus.players import system_prompt
+
+    assert "Spanish" in system_prompt("es")
+    assert "Spanish" not in system_prompt("en")

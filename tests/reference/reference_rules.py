@@ -15,13 +15,7 @@ from __future__ import annotations
 import pathlib
 import random
 
-from casus import resolver
-from casus.proxy import State
-from casus.scenario import Scenario
-from casus.state import Action as Action2
-from casus.state import Actor, Entity, Place
-from casus.state import WorldState as World2
-from casus.v1.state import (
+from v1shape import (
     Action,
     ActorState,
     Force,
@@ -29,6 +23,13 @@ from casus.v1.state import (
     Resolution,
     WorldState,
 )
+
+from casus import resolver
+from casus.proxy import State
+from casus.scenario import Scenario
+from casus.state import Action as Action2
+from casus.state import Actor, Entity, Place
+from casus.state import WorldState as World2
 
 REFERENCE = Scenario.load(pathlib.Path(__file__).parents[2] / "scenarios" / "reference")
 MODULE = REFERENCE.module

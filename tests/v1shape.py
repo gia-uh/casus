@@ -1,11 +1,8 @@
-"""The world as data.
+"""v1's world, kept as the shape the reference physics tests are written in.
 
-Frozen dataclasses, a canonical JSON form, and a digest over that form. The
-digest is what makes replay verification meaningful: it is order-independent, so
-a mismatch means a number changed, not that a dict was built in another order.
-
-Nothing in this module knows about LLMs, files or rules. It is the vocabulary the
-rest of the package speaks.
+This was `casus/v1/state.py`. The tests in `tests/reference` build worlds in
+this shape and `reference_rules.py` converts them to the engine's state and back,
+so v1's own tests check the port. Nothing in the package imports it.
 """
 
 from __future__ import annotations

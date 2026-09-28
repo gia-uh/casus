@@ -190,3 +190,34 @@ def test_loading_runs_the_dry_turn_as_well(tmp_path):
 def test_a_scenario_rebuilt_from_a_transcript_is_still_checked_statically():
     with pytest.raises(ScenarioInvalid):
         Scenario.from_parts(_minimal(), "import os\n")
+
+
+def test_an_entity_in_an_unknown_place_is_refused(tmp_path):
+    data = _minimal(entities=[{"id": "e", "owner": "A", "kind": "unit", "place": "atlantis"}])
+    with pytest.raises(ScenarioError, match="unknown place 'atlantis'"):
+        Scenario.load(_write(tmp_path, data))
+
+
+def test_an_adjacency_to_an_unknown_place_is_refused(tmp_path):
+    data = _minimal(places={"p": {"name": "P", "owner": "A", "adjacency": ["shangri-la"]}})
+    with pytest.raises(ScenarioError, match="unknown place 'shangri-la'"):
+        Scenario.load(_write(tmp_path, data))
+
+
+def test_a_duplicate_entity_id_is_refused(tmp_path):
+    entity = {"id": "e", "owner": "A", "kind": "unit", "place": "p"}
+    with pytest.raises(ScenarioError, match="duplicate entity id"):
+        Scenario.load(_write(tmp_path, _minimal(entities=[entity, dict(entity)])))
+
+
+def test_an_actor_without_a_briefing_is_refused(tmp_path):
+    data = _minimal()
+    data["actors"]["A"].pop("briefing")
+    with pytest.raises(ScenarioError, match="has no briefing"):
+        Scenario.load(_write(tmp_path, data))
+
+
+def test_a_scenario_declares_its_language_and_defaults_to_english(tmp_path):
+    data = _minimal()
+    data.pop("language", None)
+    assert Scenario.load(_write(tmp_path, data)).language() == "en"
