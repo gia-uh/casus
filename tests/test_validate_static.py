@@ -161,3 +161,20 @@ def test_the_shipped_rulesets_are_clean(scenario):
 def test_a_finding_names_its_file():
     (finding,) = check_source("import os\n", "scenarios/x/rules.py")
     assert finding.file == "scenarios/x/rules.py"
+
+
+def test_reaching_private_state_is_rejected():
+    assert _codes("""
+        @rule(phase="consequences")
+        def sneaky(s):
+            s._places["border"]["attrs"]["infra"] = 5.0
+    """) == ["private-access"]
+
+
+@pytest.mark.parametrize("use", ["sorted(s.places, key=id)", "f = hash", "g = getattr"])
+def test_a_forbidden_name_is_rejected_wherever_it_appears(use):
+    assert _codes(f"""
+        @rule(phase="contest")
+        def r(s):
+            {use}
+    """) == ["forbidden-call"]

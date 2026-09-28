@@ -22,7 +22,7 @@ ALLOWED_IMPORTS = frozenset({"casus.ruleset", "math", "__future__"})
 FORBIDDEN_CALLS = frozenset(
     {
         "open", "exec", "eval", "compile", "__import__", "input", "breakpoint",
-        "globals", "locals", "vars", "setattr", "delattr", "id", "hash",
+        "globals", "locals", "vars", "setattr", "delattr", "getattr", "id", "hash",
     }
 )  # fmt: skip
 
@@ -97,7 +97,9 @@ class _Checker(ast.NodeVisitor):
         if module in ALLOWED_IMPORTS:
             return
         root = module.split(".")[0]
-        advice = IMPORT_ADVICE.get(root, f"a rules file may import only {sorted(ALLOWED_IMPORTS)}")
+        advice = IMPORT_ADVICE.get(
+            root, f"a rules file may import only {sorted(ALLOWED_IMPORTS)}"
+        )
         self._add("forbidden-import", f"import of '{module}': {advice}", node)
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -205,10 +207,14 @@ class _Checker(ast.NodeVisitor):
 
     # --- calls and attributes --------------------------------------------
 
+    def visit_Name(self, node: ast.Name) -> None:
+        # Anywhere, not only as a call: `sorted(xs, key=id)` orders by memory
+        # address just as surely as `id(x)` does.
+        if node.id in FORBIDDEN_CALLS and isinstance(node.ctx, ast.Load):
+            self._add("forbidden-call", f"'{node.id}' is not available to a rule", node)
+
     def visit_Call(self, node: ast.Call) -> None:
         func = node.func
-        if isinstance(func, ast.Name) and func.id in FORBIDDEN_CALLS:
-            self._add("forbidden-call", f"'{func.id}()' is not available to a rule", node)
         if (
             isinstance(func, ast.Attribute)
             and func.attr in MUTATING_METHODS
@@ -225,4 +231,11 @@ class _Checker(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr.startswith("__") and node.attr.endswith("__"):
             self._add("forbidden-call", f"dunder access '.{node.attr}' is not available", node)
+        elif node.attr.startswith("_"):
+            self._add(
+                "private-access",
+                f"'.{node.attr}' reaches past the rule surface; a change made there "
+                "leaves no ledger entry",
+                node,
+            )
         self.generic_visit(node)
