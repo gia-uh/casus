@@ -5,14 +5,20 @@ resolver decides what happens.
 
 Each actor is an LLM with a private briefing, private objectives and a partial,
 deliberately noisy view of the world. It declares one to three actions per turn
-from a closed vocabulary and argues for them. Everything countable — fuel,
-attrition, air-defence suppression, the force-to-population ratio needed to hold
-ground — is computed by pure functions with a seeded RNG. The model never does
-arithmetic.
+from the scenario's closed vocabulary and argues for them. Everything countable
+is computed by the scenario's rules, in Python, with one seeded random
+generator. The model never does arithmetic.
 
-Runs are written to a JSONL transcript that carries every prompt and every raw
-completion, so a run replays exactly without touching an API, and a reader can see
-the text that produced each decision.
+The engine itself knows no domain words. A scenario is a directory: the data in
+`scenario.yaml`, the physics in `rules.py`. The shipped reference ruleset is the
+original wargame physics (fuel, Lanchester attrition, air-defence suppression,
+the force-to-population ratio needed to hold ground), and a scenario uses it with
+one line.
+
+Runs are written to a JSONL transcript that carries every prompt, every
+declaration, every event and every change to the state with the rule that made
+it, so a run replays exactly without touching an API, a reader can see the text
+that produced each decision, and "what moved this number" is a query.
 
 ## Install and run
 
@@ -20,8 +26,10 @@ the text that produced each decision.
 uv sync
 export BASE_URL=https://openrouter.ai/api/v1
 export API_KEY=$(cat ~/.config/openrouter.token)
-uv run casus run scenarios/smoke.yaml --seed 42 --out runs/run-42.jsonl
+uv run casus validate scenarios/reference
+uv run casus run scenarios/reference --seed 42 --out runs/run-42.jsonl
 uv run casus verify runs/run-42.jsonl
+uv run casus score runs/run-42.jsonl
 uv run casus bundle runs/run-42.jsonl --out demo.html
 ```
 
@@ -40,27 +48,34 @@ Check the endpoint before a run. This one talks to the real service, so it is a
 command you type, not a test:
 
 ```bash
-uv run python -m casus.llm --smoke
+uv run casus run scenarios/smoke --turns 1 --no-narrate
 ```
 
 ## What the pieces are
 
 | Module | Responsibility |
 |---|---|
-| `state.py` | The world as frozen dataclasses, canonical JSON, a stable digest |
-| `rules.py` | `(state, actions, seed) → (state', resolutions)`. Pure. No I/O, no LLM |
-| `players.py` | One LLM per actor: private briefing, fog-of-war view, validated actions |
+| `state.py` | The world as frozen dataclasses with no domain vocabulary, canonical JSON, a stable digest |
+| `proxy.py` | The surface a rule sees: views, `Ref`s, the mutation calls, the ledger |
+| `ruleset.py` | The `@rule`, `@offer` and `@view` decorators and the registry |
+| `resolver.py` | One turn: five phases in a fixed order, atomic on a failing rule. No I/O, no LLM |
+| `scenario.py` | Loads a scenario directory; runs the validator on load |
+| `validate/` | Static checks on the rules source, a dry turn, and scenario invariants |
+| `players.py` | One LLM per actor: private briefing, the scenario's view and offer, validated actions |
+| `actions.py` | The declaration type built from the scenario: invalid states are unrepresentable |
+| `display.py` | Labels, bands and ladder from the scenario's `display` block |
 | `narrator.py` | Turn narration. Read-only on state, and a test enforces it |
 | `engine.py` | Turn loop, transcript, replay verification |
-| `actions.py` | The per-scenario declaration types: invalid states are unrepresentable |
+| `score.py` | Scores a run against the engine's own claims |
 | `bundle.py` | Transcript + map → one self-contained HTML replayer |
 
-Scenarios are YAML under `scenarios/`. `smoke.yaml` ships with the engine and is
-not a model of anything. Scenarios built for a particular class or study are kept
-outside the repo — they carry sourced figures about real states and belong with
-the people who can read them in context. `scenarios/README.md` says how to point
-the engine at them, and the provenance tests run against them when they are
-present.
+Scenarios live under `scenarios/`. `smoke/` exercises every call a rule can make
+and is not a model of anything; `reference/` holds the reference ruleset and a
+small public scenario that runs on it. Scenarios built for a particular class or
+study are kept outside the repo — they carry sourced figures about real states
+and belong with the people who can read them in context. `scenarios/README.md`
+says how to write one and how to point the engine at them, and the provenance
+tests run against them when they are present.
 
 ## What it is not
 

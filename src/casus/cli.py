@@ -1,4 +1,4 @@
-"""Command line: run a scenario, replay a transcript, verify one."""
+"""Command line: run a scenario, validate one, replay a transcript, verify one."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 from . import bundle as bundle_mod
-from . import engine
+from . import display, engine
 from . import score as score_mod
 from .scenario import Scenario, ScenarioError
 
@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_cmd = sub.add_parser("run", help="play a scenario against the configured endpoint")
-    run_cmd.add_argument("scenario")
+    run_cmd.add_argument("scenario", help="a scenario directory")
     run_cmd.add_argument("--seed", type=int, default=1)
     run_cmd.add_argument(
         "--out", default=None, help="transcript path (default runs/<name>-<seed>.jsonl)"
@@ -30,6 +30,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip the per-turn news ticker (one fewer model call per turn)",
     )
+
+    validate_cmd = sub.add_parser(
+        "validate", help="check a scenario: its source, a dry turn, and its invariants"
+    )
+    validate_cmd.add_argument("scenario", help="a scenario directory")
+    validate_cmd.add_argument("--turns", type=int, default=12, help="turns per invariant run")
 
     replay_cmd = sub.add_parser("replay", help="re-derive a run from its transcript")
     replay_cmd.add_argument("transcript")
@@ -55,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         return _bundle(args)
     if args.command == "score":
         return _score(args)
+    if args.command == "validate":
+        return _validate(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -89,11 +97,31 @@ def _run(args) -> int:
     print(f"casus: wrote {out}")
     print(f"casus: {summary.turns} turns")
     for actor_id, actor in sorted(summary.final.actors.items()):
-        print(
-            f"  {actor_id}: rung {actor.escalation_rung}, fuel {actor.fuel_days:.0f}d, "
-            f"legitimacy {actor.intl_legitimacy:.0f}, support {actor.domestic_support:.0f}"
+        standing = ", ".join(
+            f"{display.label(scenario, k)} {display.number(actor.resources[k])}"
+            for k in display.standing(scenario)
+            if k in actor.resources
         )
+        print(f"  {actor_id}: {standing}")
     return 0
+
+
+def _validate(args) -> int:
+    from .scenario import ScenarioInvalid
+    from .validate.invariants import check_invariants
+
+    try:
+        findings = check_invariants(Scenario.load(args.scenario), turns=args.turns)
+    except ScenarioInvalid as exc:
+        findings = exc.findings
+    except (ScenarioError, OSError) as exc:
+        print(f"casus: {exc}", file=sys.stderr)
+        return 2
+    for finding in findings:
+        print(f"  {finding}")
+    count = f"{len(findings)} finding(s)" if findings else "no findings"
+    print(f"casus: {args.scenario}: {count}")
+    return 1 if findings else 0
 
 
 def _bundle(args) -> int:

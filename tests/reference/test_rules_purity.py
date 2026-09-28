@@ -3,8 +3,9 @@
 import pathlib
 import random
 
-from casus import rules
-from casus.state import Action
+from reference_rules import rules
+from v1shape import Action
+
 from helpers import make_actor, make_force, make_world
 
 FORBIDDEN_IN_RULES = (

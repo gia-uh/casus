@@ -1,7 +1,4 @@
-"""Turn narration. Reads the resolved world, writes prose, changes nothing.
-
-The narrator exists because a table of resolution records is unreadable to
-anyone who did not write it, and the audience for this harness is not engineers.
+"""The news ticker: a short public account of each turn, read-only by construction.
 
 It is a separate module for one reason: `test_narrator_cannot_mutate_state`. The
 moment a model is allowed to adjust a number for narrative reasons, every figure
@@ -9,9 +6,8 @@ in the run stops being auditable.
 
 **The model does not write the subject.** It is given the facts of the turn, in
 order, and returns one predicate per fact; the engine puts the actor in front,
-taken from the resolution record. This is not a style choice. Letting the model
-name the actor produced three misattributions in twelve dispatches — an American
-air campaign reported as Cuban, twice — and an enum on an `actor` field did not
+taken from the event's `actor`. Letting the model name the actor produced three
+misattributions in twelve dispatches, and an enum on an `actor` field did not
 help, because the enum stops it inventing a country and not choosing the wrong
 one. Pairing positionally removes the choice.
 """
@@ -23,7 +19,9 @@ import functools
 from lingo import Context, Engine, Message
 from pydantic import ConfigDict, Field, create_model
 
-from .state import RUNG_NAMES, Resolution, WorldState
+from . import display
+from .scenario import Scenario
+from .state import Event, WorldState
 
 SYSTEM_PROMPT = (
     "You are a wire-service correspondent covering an international crisis. You "
@@ -36,11 +34,7 @@ SYSTEM_PROMPT = (
     "speculation, no invented numbers, no quotations."
 )
 
-#: Resolutions that never make the news. `escalation` is bookkeeping about the
-#: ladder, not an event in the world.
-UNREPORTED = frozenset({"escalation"})
-
-#: Facts reported per turn. A resolver can emit two dozen records in a heavy
+#: Facts reported per turn. A resolver can emit two dozen events in a heavy
 #: turn, and a wire dispatch is not a log.
 MAX_FACTS = 5
 
@@ -51,9 +45,8 @@ LANGUAGE_NAMES = {"en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "F
 def dispatch_model(count: int) -> type:
     """Exactly `count` predicates, so fact *i* and predicate *i* are the same event.
 
-    The length is pinned at both ends: a model that returns four predicates for
-    five facts would shift every subject by one, which is the failure this whole
-    design exists to prevent, and it would look plausible on screen.
+    The length is pinned at both ends: four predicates for five facts would shift
+    every subject by one, and it would look plausible on screen.
     """
     model = create_model(
         "Dispatch",
@@ -71,59 +64,55 @@ def dispatch_model(count: int) -> type:
     return model
 
 
-def reportable(resolutions: list[Resolution]) -> list[Resolution]:
-    return [r for r in resolutions if r.kind not in UNREPORTED][:MAX_FACTS]
+def reportable(events: list[Event], scenario: Scenario) -> list[Event]:
+    unreported = set(scenario.display.get("unreported") or ())
+    return [e for e in events if e.id not in unreported][:MAX_FACTS]
 
 
 async def narrate(
-    state: WorldState,
-    resolutions: list[Resolution],
-    engine: Engine,
-    language: str = "en",
+    world: WorldState, events: list[Event], engine: Engine, scenario: Scenario
 ) -> str:
     """Return a short public account of the turn that just resolved."""
-    facts = reportable(resolutions)
+    facts = reportable(events, scenario)
     if not facts:
         return ""
 
-    prompt = build_prompt(state, facts, language)
+    prompt = build_prompt(world, facts, scenario)
     context = Context([Message.system(SYSTEM_PROMPT), Message.user(prompt)])
     dispatch = await engine.create(context, dispatch_model(len(facts)))
 
-    names = {a.id: a.name for a in state.actors.values()}
+    names = {a.id: a.name for a in world.actors.values()}
     lines = []
     for fact, predicate in zip(facts, dispatch.predicates, strict=True):
         text = " ".join(str(predicate).split())
         if not text:
             continue
-        subject = names.get(fact.actor or "", "")
+        subject = names.get(fact.detail.get("actor") or "", "")
         sentence = f"{subject} {text}".strip() if subject else text
         lines.append(sentence if sentence.endswith((".", "!", "?")) else sentence + ".")
     return " ".join(lines)
 
 
-def build_prompt(state: WorldState, facts: list[Resolution], language: str) -> str:
-    turn = state.turn - 1
-    lines = [f"DAY {turn}. Verified facts, numbered:", ""]
+def build_prompt(world: WorldState, facts: list[Event], scenario: Scenario) -> str:
+    lines = [f"DAY {world.turn - 1}. Verified facts, numbered:", ""]
     for index, fact in enumerate(facts, start=1):
-        where = f" in {fact.region}" if fact.region else ""
-        lines.append(f"  {index}. [{fact.kind}]{where}: {fact.reason}")
+        place = fact.detail.get("place")
+        where = f" in {place}" if place else ""
+        lines.append(f"  {index}. [{fact.id}]{where}: {fact.detail.get('reason', '')}")
 
     lines += ["", "Standing position at the end of the day:"]
-    for actor in state.actors.values():
-        lines.append(
-            f"  {actor.name}: sustainment {actor.fuel_days:.0f} days, "
-            f"international legitimacy {actor.intl_legitimacy:.0f}/100, "
-            f"domestic support {actor.domestic_support:.0f}/100, "
-            f"highest measure taken so far: {RUNG_NAMES[actor.escalation_rung]}"
+    for actor in world.actors.values():
+        shown = ", ".join(
+            f"{display.label(scenario, k)} {display.number(actor.resources[k])}"
+            for k in display.standing(scenario)
+            if k in actor.resources
         )
-    for region in state.regions.values():
-        if region.population <= 0:
-            continue
+        lines.append(f"  {actor.name}: {shown}")
+    for place in world.places.values():
+        attrs = display.attributes(scenario, place.attrs)
         lines.append(
-            f"  {region.name}: held by {region.owner or 'nobody'} at "
-            f"{region.control:.0f}% control, infrastructure {region.infrastructure:.0f}%, "
-            f"civilian distress {region.civilian_distress:.0f}%"
+            f"  {place.name}: held by {place.owner or 'nobody'}"
+            + (f", {attrs}" if attrs else "")
         )
 
     lines += [
@@ -133,6 +122,7 @@ def build_prompt(state: WorldState, facts: list[Resolution], language: str) -> s
             "order. No subject, no actor name — the subject is added for you."
         ),
     ]
+    language = scenario.language()
     if language != "en":
         # At the end of the user message, not only in the system prompt: the facts
         # are English, and a correspondent given English facts and a distant

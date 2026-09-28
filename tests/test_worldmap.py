@@ -1,7 +1,7 @@
 import json
 import pathlib
 
-from scenariopaths import PRIVATE_SCENARIOS, all_scenarios, requires_private
+from scenariopaths import PRIVATE_DIRS, requires_private_dirs, scenario_dirs
 
 from casus.scenario import Scenario
 
@@ -13,13 +13,19 @@ def _worldmap() -> dict:
     return json.loads(WORLDMAP.read_text())
 
 
-@requires_private
+def _places(path):
+    return Scenario.load(path, validate=False).initial_state().places.values()
+
+
+@requires_private_dirs
 def test_worldmap_covers_every_country_the_scenarios_reference():
-    """Only private scenarios name real countries; the shipped smoke scenario
-    uses invented ones on purpose."""
+    """Only private scenarios name real countries; the shipped ones use invented
+    ones on purpose."""
     worldmap = _worldmap()
-    for path in PRIVATE_SCENARIOS:
-        for iso in Scenario.load(path).country_codes():
+    for path in PRIVATE_DIRS:
+        attr = (Scenario.load(path, validate=False).display.get("map") or {}).get("country")
+        codes = {str(p.attrs.get(attr) or p.owner) for p in _places(path)} - {""}
+        for iso in codes:
             assert iso in worldmap["countries"], f"{path.name}: {iso} is not in worldmap.json"
 
 
@@ -42,9 +48,9 @@ def test_the_projection_is_declared_so_the_replayer_can_place_markers():
 def test_every_centroid_in_every_scenario_lands_inside_the_viewbox():
     worldmap = _worldmap()
     width, height = worldmap["projection"]["width"], worldmap["projection"]["height"]
-    for path in all_scenarios():
-        for region in Scenario.load(path).initial_state().regions.values():
-            lat, lon = region.centroid
+    for path in scenario_dirs():
+        for region in _places(path):
+            lat, lon = region.attrs["lat"], region.attrs["lon"]
             x = (lon + 180.0) / 360.0 * width
             y = (90.0 - lat) / 180.0 * height
             assert 0 <= x <= width, f"{path.name}: {region.id} projects off horizontally"
@@ -55,10 +61,10 @@ def test_every_scenario_keeps_its_regions_in_one_theatre():
     """A transposed lat/lon pair still projects inside the viewBox, so bounds
     alone would not catch it. Regions that belong to one scenario have to sit
     within a plausible theatre of each other."""
-    for path in all_scenarios():
-        regions = list(Scenario.load(path).initial_state().regions.values())
-        lats = [r.centroid[0] for r in regions]
-        lons = [r.centroid[1] for r in regions]
+    for path in scenario_dirs():
+        regions = list(_places(path))
+        lats = [r.attrs["lat"] for r in regions]
+        lons = [r.attrs["lon"] for r in regions]
         assert max(lats) - min(lats) < 40.0, f"{path.name} spans too much latitude"
         assert max(lons) - min(lons) < 60.0, f"{path.name} spans too much longitude"
 

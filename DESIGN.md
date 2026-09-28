@@ -1,242 +1,171 @@
-# casus — a multi-agent LLM wargame harness
+# casus — design
 
 ## Purpose
 
 A runnable artifact for teaching how modern AI is used in defence analysis,
-strategic simulation and wargaming. The harness
-has to do three jobs at once:
+strategic simulation and wargaming. It has three jobs:
 
-1. **Teach the mechanism.** A viewer must be able to see exactly what each model
-   was told, what it decided, and which part of the outcome the model did *not*
-   decide. The transcript is the teaching material, not a by-product.
-2. **Run live without failing on stage.** A recorded run replays instantly and
-   deterministically; a live run is a separate, optional button.
+1. **Teach the mechanism.** A viewer can see what each model was told, what it
+   decided, and which part of the outcome the model did *not* decide. The
+   transcript is the teaching material.
+2. **Run without failing on stage.** A recorded run replays offline and
+   deterministically; a live run is optional.
 3. **Be reproducible by a student on a laptop.** Players are 27–32B-class models
-   reachable over an OpenAI-compatible endpoint, so the same run works against
+   behind any OpenAI-compatible endpoint, so the same run works against
    OpenRouter, LM Studio or Ollama with one environment variable changed.
 
-Scenarios built for a particular class or study are not part of this repo. See
-`scenarios/README.md`.
+The full specification is the v2 design doc in the workspace vault,
+`vault/Atlas/Architecture/2026-09-28-casus-general-conflict-simulator-design.md`.
 
-Python 3.12+, `uv`. Code, identifiers and docs in English.
+## The rule the design serves
 
-## The one rule the whole design serves
+**The language model never computes a quantity.** Every number is computed by a
+scenario's rules, in Python, with one seeded random generator. The model declares
+intent and argues for it; the rules decide what happens. That is what lets the
+artifact answer "how accurate is this?" with something checkable: the numeric
+layer is tested and replayable, the model layer is legible, and a test enforces
+the boundary between them.
 
-**The language model never computes a quantity.** Fuel consumption, attrition,
-force-to-population ratios, air-defence suppression, detection and civilian
-distress are computed by pure functions with a seeded RNG. The model declares
-*intent* and argues for it; the resolver decides what happens.
+The narrator reads the resolved state and writes prose about it. A test asserts
+the state digest is unchanged across the call.
 
-This is not a stylistic preference. It is the only way the artifact can answer
-"how accurate is this?" with something other than a shrug: the numeric layer is
-auditable and testable, the model layer is legible, and the boundary between them
-is enforced by a test rather than by discipline.
+## The engine knows no vocabulary
 
-Corollary, stated as an invariant the test suite checks: the narrator sees the
-resolved state and writes prose about it. It cannot write to state at all.
+v1 knew about fuel, air defences and occupation ratios, so every scenario with a
+different mechanic needed an engine change. v2 moves the physics out. The engine
+knows actors holding named resources, places with named attributes and
+adjacency, entities with an owner, a kind and a place, the actions a scenario
+declares, five fixed phases, and rules that change state through one recording
+API. None of the names mean anything to it; `test_state.py` fails if `state.py`
+mentions a domain word.
 
-## Components
+A scenario is a directory: `scenario.yaml` holds the data (actors, resources,
+places, entities, actions, briefings, how to display it all), and `rules.py`
+holds the physics. Whoever changes forces and briefings never opens the Python.
 
-Six modules, each independently testable, each answerable in one sentence.
-
-| Module | What it does | Depends on |
-|---|---|---|
-| `state.py` | The world as dataclasses; JSON round-trip | — |
-| `rules.py` | `(state, actions, seed) → (state', resolutions)`; pure, no I/O | `state` |
-| `players.py` | One LLM per actor; private briefing + partial view → validated actions | `state`, `llm` |
-| `narrator.py` | Resolved state → public news ticker. Read-only on state | `state`, `llm` |
-| `engine.py` | Turn loop, seeding, JSONL transcript, replay | all |
-| `llm.py` | One function against any OpenAI-compatible endpoint | — |
-
-Plus `scenarios/*.yaml` (data, not code) and `ui/` (a single-file HTML replayer).
-
-### `state.py`
+## Five phases, in a fixed order
 
 ```
-WorldState
-  turn: int
-  actors: dict[str, ActorState]
-  regions: dict[str, RegionState]
-  forces: list[Force]
-  relations: dict[tuple[str,str], int]      # -100..100
-  log: list[Resolution]                     # what happened last turn, public
-
-ActorState
-  id, name
-  fuel_days: float                          # days of military sustainment
-  munitions: float                          # abstract stockpile, 0..100
-  political_capital: float                  # 0..100, leadership's room to act
-  domestic_support: float                   # 0..100
-  intl_legitimacy: float                    # 0..100
-  isr: float                                # 0..1, quality of its picture
-  escalation_rung: int                      # highest rung reached, 0..7
-
-RegionState
-  id, name, owner, adjacency: list[str]
-  centroid: (lat, lon)                      # for the map
-  control: float                            # 0..100, owner's effective control
-  infrastructure: float                     # 0..100
-  civilian_distress: float                  # 0..100
-  population: int
-  terrain: "urban" | "rural" | "coastal" | "sea"
-
-Force
-  id, owner, kind, strength, readiness, region, posture
-  kind: ground | air | naval | air_defense | irregular
-  posture: garrison | offensive | defensive | dispersed | hardened
+legality → upkeep → movement → contest → consequences
 ```
 
-Everything serializes to plain JSON. A `WorldState` is fully described by its
-JSON; there is no hidden state anywhere in the engine.
+A scenario puts rules in phases; it does not choose their order. The fixed order
+is what makes "what has happened so far this turn" exact: a rule sees the events
+emitted by earlier phases and earlier rules, and nothing else. Within a phase,
+rules run in declaration order. Before any rule runs, the resolver sorts the
+actions into a canonical order, clamps intensity to each action's declared
+bounds, drops a place from an action that takes none, and rejects what no
+scenario could accept (an undeclared type, an unknown actor, place or target).
 
-### The escalation ladder
+A rule that raises abandons the whole turn, and the transcript records the error.
+A half-applied turn on disk would replay as a plausible state nobody produced.
 
-Eight rungs, fixed, and every action maps to exactly one:
+## The rule surface, and the ledger
 
-```
-0 rhetoric          1 economic          2 show of force     3 interdiction
-4 covert / cyber     5 limited strikes   6 air campaign      7 ground invasion
-```
+A rule reads the world through views and changes it only through mutation calls:
+`add`, `set`, `transfer`, `decay`, `move`, `spawn`, `despawn`. Attribute access on
+a view returns a `Ref`, the value plus the path it came from, so `s.add(ref, -8)`
+knows what it changes. Every mutation writes `{rule, ref, before, after, turn,
+phase}` to the ledger, and the ledger goes into the transcript.
 
-The ladder is the spine of the pedagogy. Plotting rung-per-actor-per-turn is the
-one chart a room of directors will remember, and it is exactly the measurement
-Rivera et al. used to show that off-the-shelf models escalate.
+The ledger exists because of v1's ratchet. On 2026-09-27 Cuban domestic support
+fell to zero by turn six with every actor holding, and survived 196 tests and two
+scored runs, because nothing could answer "what moved this number". Now that is
+a query over the transcript. `test_engine.py` replays the ledger from the initial
+state and requires it to land on the recorded final state; if it does not, some
+path changed a value without recording it.
 
-### Action vocabulary
+Two hooks sit beside the rules. `@offer` says which action types an actor may
+declare this turn and at which places; it runs read-only, and the declaration
+schema is built from it, so an action the actor cannot take cannot be expressed.
+`@view` turns a throwaway copy of the world into what the actor believes; it is
+the fog of war, and its changes never reach the world or the ledger.
 
-A closed set. The model picks from it; it cannot invent an action.
+## Everything else reads the display block
 
-`statement`, `sanction`, `mobilize`, `deploy`, `disperse`, `harden`, `blockade`,
-`cyber`, `covert`, `strike`, `air_campaign`, `invade`, `supply`, `negotiate`,
-`concede`, `hold`.
+Players, narrator, score and viewer never name a resource. They read the
+scenario's `display` block: which resources stand in the bars and the CLI line,
+bands that stand in for exact numbers in another actor's prompt, labels in the
+scenario's language, the escalation ladder if there is one, what the map colours
+and draws, and which events the narrator leaves out. Identifiers stay English;
+labels carry the language.
 
-Each carries typed parameters (target region, target actor, forces committed,
-intensity 1–3). Each turn an actor declares one to three actions plus a private
-rationale.
+## The validator
 
-### `players.py` — the contract with the model
+Three layers, because each catches what the others cannot.
 
-Each player receives, and nothing else:
+- **Static**, over the source, before any of it runs: no direct assignment to
+  state (it would bypass the ledger), no import outside `casus.ruleset` and
+  `math`, no `open`, `eval`, `id`, `hash` or dunder access, no module state
+  written from a rule, no unknown phase, no signature that does not match its
+  decorator. `Scenario.from_parts` runs it on every load, including a scenario
+  rebuilt from a transcript.
+- **Dynamic**, one dry turn with everyone holding: names a rule uses that the
+  scenario does not declare, rules on action types nobody can declare, module
+  values a turn changed, and a digest that differs between two processes started
+  with different `PYTHONHASHSEED` values. It needs two processes because string
+  hashing, and so `set` order, is fixed for the life of one. `Scenario.load`
+  runs it.
+- **Invariants**, on demand (`casus validate`): a quantity declared
+  `monotone: false` must rise and fall somewhere across one holding run and
+  eight random-policy runs, and in the holding run none may be driven to a bound
+  and stay there. Holding alone cannot answer whether a variable can go back,
+  because when everyone holds nobody pushes it. This layer rejects the v1
+  Caribbean physics as ported, which is the evidence it catches the real defect.
 
-- its **private briefing**: who it is, its objectives, its red lines, its
-  domestic constraints;
-- its **partial view** of the world: its own forces exactly; other actors' forces
-  perturbed by deterministic noise scaled by `1 - isr`;
-- the **public log** of last turn;
-- the **action schema** and the legal action list.
+A finding carries its reason, so an author (or design mode's agent) fixes it in
+one pass. None of this is a sandbox: a rules file still runs in the engine's
+process.
 
-It returns strict JSON: `{actions: [...], rationale: str, assessment: str}`.
-Validation failure triggers one retry carrying the validation error, then falls
-back to `hold`. Every prompt and every raw response goes into the transcript.
+## Transcript and replay
 
-Fog of war is real, not decorative: a player with low ISR is shown wrong numbers,
-and the class gets to watch it reason confidently from them.
+The transcript is JSONL. It carries the scenario data and its rules source, every
+state with its digest, every prompt with what the actor was offered, every
+validated declaration, every action with its rationale, every event, every
+mutation, and every narrative. `casus verify` rebuilds the scenario from the
+transcript alone, re-derives the run from the recorded declarations, and fails
+naming the first turn and field that differ. It compares the state content as
+well as the digest, so a hand-edited state whose digest was left alone fails too.
 
-### `rules.py` — what the deterministic layer actually computes
+Within a turn, the random draws for every actor's view happen first, in sorted
+actor order, and only then do the model calls go out together. Determinism and
+concurrency are separated on purpose.
 
-Each of these is a named function with tests, and each is a slide:
+## The reference ruleset
 
-- **Sustainment.** Active forces burn `fuel_days` by kind and posture. A
-  `blockade` cuts inflow; a `supply` action from a third actor restores it.
-  Running out forces postures down to `garrison` regardless of what the model
-  wants — the first place where the model's intent visibly loses to arithmetic.
-- **Attrition.** Lanchester square-law exchange between engaged forces, modified
-  by air superiority, surviving air defence, terrain, and an irregular-defender
-  multiplier in `urban` and `rural`.
-- **Air-defence suppression.** Sustained strikes degrade `air_defense` strength;
-  below a threshold the attacker loses its attrition penalty and switches to
-  cheap munitions. Calibrated so suppression takes four to five turns, matching
-  the opening phase of recent publicly reported air campaigns.
-- **Detection.** Seeded noise applied to each actor's view of every other, scaled
-  by ISR. Deterministic given the seed.
-- **Civilian distress and legitimacy.** Distress rises with infrastructure damage
-  and fuel deprivation. Distress costs the attacker `intl_legitimacy` and the
-  defender `domestic_support`, on different curves.
-- **Occupation.** Holding a region needs one security member per fifty
-  inhabitants — the stability-operations rule of thumb from *Parameters*, the one
-  think-tank estimates of occupation force size are built on. Short of that
-  ratio, `control` decays every turn and irregular forces regenerate. An invader
-  that takes ground without the ratio watches the number fall on screen.
+v1's physics lives in `scenarios/reference/rules.py`: sustainment, Lanchester
+attrition, air-defence suppression, mobilisation, supply, movement, the
+escalation high-water mark, the occupation ratio, civilian distress and
+legitimacy. Every coefficient is a module constant with a comment giving its
+provenance. A scenario uses it with `rules: reference`. The physics stays public
+and tested in CI even though the class scenario that uses it is private.
 
-### `narrator.py`
-
-One LLM call per turn. Input: the public state and the resolutions. Output: a
-short news ticker. It has no write path to state, and `test_narrator_cannot_mutate`
-asserts that the state hash is unchanged across the call.
-
-### `engine.py` and the transcript
-
-The transcript is JSONL, one record per event, kinds: `scenario`, `state`,
-`prompt`, `response`, `action`, `resolution`, `narrative`, `end`. It carries the
-full prompt and the raw completion for every call. A run is replayable from it
-with no API access, and `--replay` re-derives the entire state trajectory from
-the recorded responses and asserts it matches byte for byte. If that test fails,
-some non-determinism leaked into the resolver.
-
-### `llm.py`
-
-```python
-def complete(model: str, messages: list[dict], schema: dict) -> dict
-```
-
-One OpenAI-compatible POST. `CASUS_BASE_URL` and `CASUS_API_KEY` select the
-backend; the per-actor `model` string comes from the scenario file. Default is a
-Qwen3 32B-class model over OpenRouter, so a student swaps the base URL for
-`http://localhost:1234/v1` and runs the same scenario against LM Studio.
-
-### `ui/` — the replayer
-
-A single HTML file, no build step, no dependencies at load time, matching the
-house deck format (16:9, `cqw` units, dark, keyboard-driven). It loads a
-transcript and shows, per turn:
-
-- a **world map** in SVG (Natural Earth 110m, simplified once by a script into
-  `worldmap.json`) with actor colours and force markers on region centroids,
-  cropped to the theatre the scenario describes;
-- the **escalation chart**, rung per actor over turns;
-- **resource bars** per actor;
-- the **action log** with each model's rationale in its own words;
-- a **prompt drawer** showing exactly what that model saw before deciding.
-
-The prompt drawer is the single most valuable element for this audience: it turns
-"the AI decided to blockade" into "here is the text that produced that word".
+The port is bit-exact: replaying the recorded Caribbean run on it reproduces all
+thirteen states, 1,560 numeric comparisons with a worst difference of zero
+(`tests/test_migration.py`, local only, because the recording and the class
+scenario are not in git). It keeps two v1 quirks on purpose, both commented in
+the code: the air-defence divisor reads strength from before the same turn's
+suppression, and `mobilize` takes no place.
 
 ## How accuracy is claimed
 
-A wargame does not predict. It enumerates branches and exposes assumptions.
-So the artifact makes three claims, each mechanically checkable:
+A wargame does not predict. It enumerates branches and exposes assumptions, so
+the artifact makes three checkable claims:
 
-1. **Reproducibility.** Same seed and same recorded responses reproduce the state
-   trajectory exactly. Different seeds produce a spread that gets reported rather
-   than hidden.
+1. **Reproducibility.** The same seed and the same recorded declarations
+   reproduce the trajectory exactly. `casus verify` checks it.
 2. **External branch agreement.** Where a published open-source analysis has
-   already enumerated the branches of a situation — a pressure campaign, an
-   internal collapse, a decapitation strike, a limited air offensive, a runaway
-   escalation — those branches must emerge from the initial conditions without
-   being handed to the models as input. A branch the engine cannot reach is a
-   finding about the engine, and gets written down rather than explained away.
-3. **Physical plausibility.** Quantities the engine emits sit inside the ranges
-   public sources give: an occupation force at or above one security member per
-   fifty inhabitants, air-defence suppression in four to five turns, force counts
-   within the published order of battle.
-
-## Vertical slices
-
-1. **VS1 — thinnest end-to-end path.** Two actors, three regions, three turns,
-   terminal output, one real API call per player per turn, transcript written.
-   No map, no narrator, minimal rules (sustainment and attrition only).
-2. **VS2 — the deterministic core.** Full `rules.py` with tests, including the
-   occupation ratio and air-defence suppression. Replay determinism test.
-3. **VS3 — scenarios as data.** YAML loader, a sourced scenario, actor briefings,
-   seeds for each branch.
-4. **VS4 — the replayer.** World map, escalation chart, prompt drawer.
-5. **VS5 — the runs.** Three recorded runs plus the analysis that goes in the deck.
+   enumerated the branches of a situation, those branches must emerge from the
+   initial conditions without being handed to the models. A branch the engine
+   cannot reach is a finding about the engine.
+3. **Physical plausibility.** Emitted quantities sit inside the ranges a
+   scenario's `display.plausibility` declares, each naming its source.
+   `casus score` reports them.
 
 ## Out of scope
 
-No real-time operation, no connection to any live data feed, no targeting-level
-resolution: regions and force aggregates are the finest granularity, deliberately.
-The engine models whether a campaign is sustainable and what it costs, not how to
-conduct one. No classified or non-public source is used anywhere, and every
-numeric field in a scenario carries a `source:` key a reader can follow — a test
-fails when one does not.
+No real-time operation, no live data feed, no targeting-level resolution: places
+and entity aggregates are the finest granularity, deliberately. The engine models
+whether a campaign is sustainable and what it costs, not how to conduct one. No
+classified or non-public source is used, and every numeric field in a class
+scenario carries a `source:` a reader can follow; a test fails when one does not.

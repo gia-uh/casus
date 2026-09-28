@@ -18,10 +18,10 @@ MAP_TOKEN = "__CASUS_WORLDMAP__"
 
 #: Record kinds the replayer reads. The raw `declaration` records are dropped:
 #: they are the replay payload, they stay in the transcript for audit, and no
-#: panel displays them. The `action` records already carry the rationale.
-KEPT_KINDS = frozenset(
-    {"scenario", "state", "action", "resolution", "narrative", "prompt", "end"}
-)
+#: panel displays them. The `action` records already carry the rationale. The
+#: `mutation` records are the ledger, the heaviest records in a run, and stay in
+#: the transcript for the same reason.
+KEPT_KINDS = frozenset({"scenario", "state", "action", "event", "narrative", "prompt", "end"})
 
 
 class BundleError(RuntimeError):

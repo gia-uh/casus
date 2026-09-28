@@ -7,8 +7,8 @@ Three claims, from the design:
    emerge from the initial conditions. Only the *ingredients* of that check live
    here; naming the branches is a question about a particular scenario and a
    particular study, and belongs with them.
-3. **Physical plausibility** — the quantities the engine emits sit inside ranges
-   public sources give.
+3. **Physical plausibility** — the quantities the engine emits sit inside the
+   ranges the scenario's `display.plausibility` declares, each with its source.
 
 Plus the number that turned out to matter most in practice and is nobody's
 claim: what fraction of everything the models declared was actually usable.
@@ -20,13 +20,14 @@ import collections
 import dataclasses
 import pathlib
 
-from . import engine, rules
-from .state import RUNG_NAMES, WorldState
+from . import display, engine
+from .scenario import Scenario
+from .state import WorldState
 
 
 @dataclasses.dataclass
 class Score:
-    scenario: str
+    scenario: Scenario
     seed: int
     turns: int
     declared: int
@@ -50,19 +51,20 @@ class Score:
 def score(path: pathlib.Path | str) -> Score:
     records = engine.read_records(path)
     header = next(r for r in records if r["kind"] == "scenario")
+    scenario = Scenario.from_parts(header["scenario"], header["rules_source"])
     states = sorted((r for r in records if r["kind"] == "state"), key=lambda r: r["turn"])
     final = WorldState.from_json(states[-1]["state"])
 
     declared = [r for r in records if r["kind"] == "action"]
     rejections = [
-        r["resolution"]
+        r["event"]["detail"]
         for r in records
-        if r["kind"] == "resolution" and r["resolution"]["kind"] == "action_rejected"
+        if r["kind"] == "event" and r["event"]["id"] == "action_rejected"
     ]
 
-    # A transcript with no `declaration` records predates the current format and
-    # cannot be replayed. Saying so is honest; reporting it as a failed replay
-    # would read as a defect in the engine rather than in the artifact.
+    # A transcript with no `declaration` records cannot be replayed. Saying so is
+    # honest; reporting it as a failed replay would read as a defect in the engine
+    # rather than in the artifact.
     replayable = any(r["kind"] == "declaration" for r in records)
     reproducible, replay_error = True, ""
     if not replayable:
@@ -70,24 +72,26 @@ def score(path: pathlib.Path | str) -> Score:
     else:
         try:
             engine.replay(path)
-        except engine.ReplayMismatch as exc:
+        except (engine.ReplayMismatch, engine.RuleFailed) as exc:
             reproducible, replay_error = False, str(exc)
 
     return Score(
-        scenario=header["name"],
+        scenario=scenario,
         seed=int(header["seed"]),
         turns=len(states) - 1,
         declared=len(declared),
         rejected=len(rejections),
         rejection_reasons=dict(
-            collections.Counter(_reason_family(r["reason"]) for r in rejections).most_common()
+            collections.Counter(
+                _reason_family(r.get("reason", "")) for r in rejections
+            ).most_common()
         ),
-        rungs={a: s.escalation_rung for a, s in sorted(final.actors.items())},
+        rungs=_rungs(scenario, final),
         final=final,
         reproducible=reproducible,
         replayable=replayable,
         replay_error=replay_error,
-        plausibility=_plausibility(final),
+        plausibility=_plausibility(scenario, final),
     )
 
 
@@ -96,69 +100,51 @@ def _reason_family(reason: str) -> str:
     return reason.split("'")[0].strip() or reason
 
 
-def _plausibility(final: WorldState) -> list[tuple[str, bool, str]]:
-    """Checks whose expected ranges come from the published record.
+def _rungs(scenario: Scenario, final: WorldState) -> dict[str, int]:
+    resource = (scenario.display.get("ladder") or {}).get("resource")
+    if not resource:
+        return {}
+    return {
+        a: int(actor.resources[resource])
+        for a, actor in sorted(final.actors.items())
+        if resource in actor.resources
+    }
 
-    Each returns (what was checked, whether it held, what was seen). A failure is
-    a finding about the model, not a reason to stop.
+
+def _plausibility(scenario: Scenario, final: WorldState) -> list[tuple[str, bool, str]]:
+    """Each declared range, checked against every holder of that quantity.
+
+    Returns (what was checked, whether it held, what was seen). A failure is a
+    finding about the model, not a reason to stop.
     """
     checks: list[tuple[str, bool, str]] = []
-
-    for region in final.regions.values():
-        if region.population <= 0 or not region.country:
-            continue
-        if region.owner in ("", region.country):
-            continue
-        required = rules.occupation_requirement(region.population)
-        present = (
-            sum(
-                f.strength
-                for f in final.forces
-                if f.owner == region.owner
-                and f.kind in ("ground", "irregular")
-                and f.region == region.id
+    ranges = scenario.display.get("plausibility") or {}
+    holders = [(f"{a.id}", a.resources) for a in final.actors.values()]
+    holders += [(p.name, p.attrs) for p in final.places.values()]
+    for name, spec in ranges.items():
+        lo = float(spec.get("min", float("-inf")))
+        hi = float(spec.get("max", float("inf")))
+        source = spec.get("source", "unsourced")
+        for holder, values in holders:
+            if name not in values:
+                continue
+            value = float(values[name])
+            checks.append(
+                (
+                    f"{holder}: {name} inside [{lo:g}, {hi:g}] ({source})",
+                    lo <= value <= hi,
+                    display.number(value),
+                )
             )
-            * rules.TROOPS_PER_STRENGTH_POINT
-        )
-        checks.append(
-            (
-                f"{region.name} is occupied with the ratio the literature requires",
-                present >= required,
-                f"{present:,.0f} present against {required:,} required",
-            )
-        )
-
-    for actor in final.actors.values():
-        checks.append(
-            (
-                f"{actor.id} stayed inside the 0–100 bands",
-                all(
-                    0.0 <= v <= 100.0
-                    for v in (
-                        actor.intl_legitimacy,
-                        actor.domestic_support,
-                        actor.political_capital,
-                    )
-                ),
-                f"legitimacy {actor.intl_legitimacy:.0f}, support {actor.domestic_support:.0f}",
-            )
-        )
-        checks.append(
-            (
-                f"{actor.id} never went into negative fuel",
-                actor.fuel_days >= 0.0,
-                f"{actor.fuel_days:.0f} fuel-days",
-            ),
-        )
-
     return checks
 
 
 def report(score_: Score) -> str:
     """A markdown report. The audience is a reader deciding whether to believe
     the run, so every claim carries the number behind it."""
+    scenario = score_.scenario
     lines = [
-        f"# {score_.scenario}, seed {score_.seed}",
+        f"# {scenario.name}, seed {score_.seed}",
         "",
         f"{score_.turns} turns.",
         "",
@@ -186,28 +172,26 @@ def report(score_: Score) -> str:
                 else f"**Replay failed.** {score_.replay_error}"
             )
         ),
-        "",
-        "## Escalation reached",
-        "",
-        "| actor | rung | |",
-        "|---|---|---|",
-    ]
-    lines += [
-        f"| {actor} | {rung} | {RUNG_NAMES[rung]} |" for actor, rung in score_.rungs.items()
     ]
 
+    if score_.rungs:
+        lines += ["", "## Escalation reached", "", "| actor | rung | |", "|---|---|---|"]
+        lines += [
+            f"| {actor} | {rung} | {display.rung_label(scenario, rung) or ''} |"
+            for actor, rung in score_.rungs.items()
+        ]
+
+    standing = display.standing(scenario)
     lines += [
         "",
         "## Final standing",
         "",
-        "| actor | fuel-days | legitimacy | support |",
-        "|---|---|---|---|",
+        "| actor | " + " | ".join(display.label(scenario, k) for k in standing) + " |",
+        "|---|" + "---|" * len(standing),
     ]
     for actor in score_.final.actors.values():
-        lines.append(
-            f"| {actor.id} | {actor.fuel_days:.0f} | {actor.intl_legitimacy:.0f} | "
-            f"{actor.domestic_support:.0f} |"
-        )
+        cells = [display.number(actor.resources.get(k, float("nan"))) for k in standing]
+        lines.append(f"| {actor.id} | " + " | ".join(cells) + " |")
 
     lines += ["", "## Physical plausibility", ""]
     for what, held, seen in score_.plausibility:
