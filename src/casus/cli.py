@@ -1,4 +1,4 @@
-"""Command line: run a scenario, replay a transcript, verify one."""
+"""Command line: run a scenario, validate one, replay a transcript, verify one."""
 
 from __future__ import annotations
 
@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the per-turn news ticker (one fewer model call per turn)",
     )
 
+    validate_cmd = sub.add_parser(
+        "validate", help="check a scenario: its source, a dry turn, and its invariants"
+    )
+    validate_cmd.add_argument("scenario", help="a scenario directory")
+    validate_cmd.add_argument("--turns", type=int, default=12, help="turns per invariant run")
+
     replay_cmd = sub.add_parser("replay", help="re-derive a run from its transcript")
     replay_cmd.add_argument("transcript")
 
@@ -55,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         return _bundle(args)
     if args.command == "score":
         return _score(args)
+    if args.command == "validate":
+        return _validate(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -96,6 +104,24 @@ def _run(args) -> int:
         )
         print(f"  {actor_id}: {standing}")
     return 0
+
+
+def _validate(args) -> int:
+    from .scenario import ScenarioInvalid
+    from .validate.invariants import check_invariants
+
+    try:
+        findings = check_invariants(Scenario.load(args.scenario), turns=args.turns)
+    except ScenarioInvalid as exc:
+        findings = exc.findings
+    except (ScenarioError, OSError) as exc:
+        print(f"casus: {exc}", file=sys.stderr)
+        return 2
+    for finding in findings:
+        print(f"  {finding}")
+    count = f"{len(findings)} finding(s)" if findings else "no findings"
+    print(f"casus: {args.scenario}: {count}")
+    return 1 if findings else 0
 
 
 def _bundle(args) -> int:

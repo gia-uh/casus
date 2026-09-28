@@ -15,5 +15,6 @@ class Finding:
     line: int = 0
 
     def __str__(self) -> str:
-        where = f"{self.file}:{self.line}: " if self.file else ""
+        line = f":{self.line}" if self.line else ""
+        where = f"{self.file}{line}: " if self.file else ""
         return f"{where}{self.code}: {self.message}"

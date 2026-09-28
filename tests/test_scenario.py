@@ -9,7 +9,7 @@ from scenariopaths import SCENARIOS
 
 from casus import proxy
 from casus.resolver import resolve
-from casus.scenario import Scenario, ScenarioError
+from casus.scenario import Scenario, ScenarioError, ScenarioInvalid
 from casus.state import Action
 
 SMOKE = SCENARIOS / "smoke"
@@ -158,3 +158,35 @@ def test_the_smoke_scenario_exercises_the_whole_rule_surface(monkeypatch):
         world, _, _ = resolve(world, actions, s.ruleset, rng, s.actions,
                               s.resource_bounds(), s.attribute_bounds())  # fmt: skip
     assert used == set(SURFACE), f"never used: {sorted(set(SURFACE) - used)}"
+
+
+def _scenario_with(tmp_path, bad_import=False, direct_assignment=False, touches=None):
+    body = "from casus.ruleset import rule\n"
+    if bad_import:
+        body += "import os\n"
+    body += '\n@rule(phase="contest")\ndef r(s):\n'
+    if direct_assignment:
+        body += '    s.place("p").infra = 5\n'
+    if touches:
+        body += f"    s.place({touches!r})\n"
+    body += "    pass\n"
+    return _write(tmp_path, _minimal(), rules=body)
+
+
+def test_an_invalid_scenario_reports_all_of_its_findings_at_once(tmp_path):
+    """Reporting one finding per load turns a five-minute fix into five loads,
+    and the design agent pays that cost on every iteration."""
+    with pytest.raises(ScenarioInvalid) as excinfo:
+        Scenario.load(_scenario_with(tmp_path, bad_import=True, direct_assignment=True))
+    assert {f.code for f in excinfo.value.findings} == {"forbidden-import", "direct-assignment"}
+
+
+def test_loading_runs_the_dry_turn_as_well(tmp_path):
+    with pytest.raises(ScenarioInvalid) as excinfo:
+        Scenario.load(_scenario_with(tmp_path, touches="atlantis"))
+    assert [f.code for f in excinfo.value.findings] == ["unknown-place"]
+
+
+def test_a_scenario_rebuilt_from_a_transcript_is_still_checked_statically():
+    with pytest.raises(ScenarioInvalid):
+        Scenario.from_parts(_minimal(), "import os\n")

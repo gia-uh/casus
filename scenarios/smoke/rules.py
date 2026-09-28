@@ -45,7 +45,9 @@ def raid(s, a):
     s.add(s.place(a.place).infra, -damage)
     for unit in s.find(owner=a.actor):
         s.set(unit.posture, "offensive")
-    s.emit("raided", actor=a.actor, place=a.place, reason=f"infrastructure fell by {damage:.1f}")
+    s.emit(
+        "raided", actor=a.actor, place=a.place, reason=f"infrastructure fell by {damage:.1f}"
+    )
 
 
 @rule(phase="consequences")
@@ -55,7 +57,10 @@ def recovery(s):
             s.decay(p.infra, toward=100.0, rate=REBUILD_RATE)
         militia = s.find(kind="militia", place=p.id)
         if p.infra < MILITIA_BELOW and not militia and p.owner:
-            s.spawn(id=f"militia-{p.id}", kind="militia", owner=p.owner, place=p.id, strength=1.0)
+            s.spawn(
+                id=f"militia-{p.id}", kind="militia", owner=p.owner, place=p.id,
+                strength=1.0, posture="garrison",
+            )  # fmt: skip
         for m in militia:
             if p.infra > MILITIA_GONE_ABOVE:
                 s.despawn(m)

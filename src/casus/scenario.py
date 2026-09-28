@@ -21,6 +21,7 @@ import yaml
 
 from .ruleset import RuleSet
 from .state import Actor, Entity, Place, WorldState
+from .validate.static import check_source
 
 #: The fields an action may carry. Each maps to one field of `state.Action`.
 ACTION_FIELDS = frozenset({"place", "target", "entities", "intensity"})
@@ -31,6 +32,16 @@ SHIPPED = pathlib.Path(__file__).resolve().parents[2] / "scenarios"
 
 class ScenarioError(ValueError):
     """The scenario does not describe a usable world."""
+
+
+class ScenarioInvalid(ScenarioError):
+    """The validator found problems. Carries every finding, not just the first."""
+
+    def __init__(self, findings):
+        self.findings = list(findings)
+        super().__init__(
+            f"{len(self.findings)} finding(s):\n" + "\n".join(f"  {f}" for f in self.findings)
+        )
 
 
 def _bounds(declarations: dict[str, dict[str, Any]]) -> dict[str, tuple[float, float]]:
@@ -56,7 +67,9 @@ class Scenario:
     # --- loading --------------------------------------------------------
 
     @classmethod
-    def load(cls, directory: str | pathlib.Path) -> Scenario:
+    def load(cls, directory: str | pathlib.Path, validate: bool = True) -> Scenario:
+        """Load a scenario directory. With `validate`, the dry turn runs as well as
+        the static check, and any finding raises `ScenarioInvalid`."""
         directory = pathlib.Path(directory)
         manifest = directory / "scenario.yaml"
         if not manifest.is_file():
@@ -65,7 +78,14 @@ class Scenario:
         if not isinstance(data, dict):
             raise ScenarioError("scenario.yaml must contain a mapping")
         rules_path = cls._rules_path(directory, data.get("rules"))
-        return cls.from_parts(data, rules_path.read_text(), origin=str(rules_path))
+        scenario = cls.from_parts(data, rules_path.read_text(), origin=str(rules_path))
+        if validate:
+            from .validate.dynamic import dry_run
+
+            findings = dry_run(scenario).findings
+            if findings:
+                raise ScenarioInvalid(findings)
+        return scenario
 
     @staticmethod
     def _rules_path(directory: pathlib.Path, named: str | None) -> pathlib.Path:
@@ -82,7 +102,12 @@ class Scenario:
 
     @classmethod
     def from_parts(cls, data: dict[str, Any], rules_source: str, origin: str = "") -> Scenario:
+        """Build a scenario from its data and its rules source. The static check
+        always runs, because the source is about to be executed."""
         _check_structure(data)
+        findings = check_source(rules_source, origin or "<rules.py>")
+        if findings:
+            raise ScenarioInvalid(findings)
         module = load_rules(rules_source, origin or "<rules.py>")
         return cls(
             data=data,
@@ -176,12 +201,12 @@ class Scenario:
 
 
 def load_rules(source: str, origin: str) -> types.ModuleType:
-    """Execute a scenario's rules into a fresh module. Validation happens before
-    this is reached (plan Task 12); here a failure is reported, not hidden."""
+    """Execute a scenario's rules into a fresh module. The static check has
+    already run; here a failure is reported, not hidden."""
     module = types.ModuleType("casus_scenario_rules")
     module.__file__ = origin
     try:
-        # Executing the scenario's own code is the point; the validator runs first.
+        # Executing the scenario's own code is the point; the static check runs first.
         exec(compile(source, origin, "exec"), module.__dict__)  # noqa: S102
     except Exception as exc:
         raise ScenarioError(f"{origin} failed to load: {type(exc).__name__}: {exc}") from exc
