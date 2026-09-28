@@ -1,15 +1,11 @@
 """One language model per actor, speaking a type it cannot misuse.
 
-There is no LLM plumbing in this package. `lingo` owns the transport, the
-structured-output call and the parsing; casus owns the prompt, the type, and what
-the answer means. A model that returns something unusable is a lingo bug, and it
-gets fixed in lingo.
+There is no LLM plumbing here: `lingo` owns the transport, the structured call
+and the parsing. casus owns the prompt, the type, and what the answer means.
 
-What casus does own is the shape of what may be said. `actions.declaration_model`
-builds a discriminated union bound to this scenario's regions and actors, so a
-declaration that names a region off the map, or supplies nobody, cannot be
-constructed at all: the provider enforces the enum and lingo validates the
-result.
+What an actor sees comes from the scenario: its `view` hook turns a throwaway
+copy of the world into what the actor believes, its `offer` hook says what the
+actor may declare, and the `display` block says how to show the numbers.
 """
 
 from __future__ import annotations
@@ -19,9 +15,11 @@ import random
 
 from lingo import Context, Engine, Message
 
-from .v1 import rules
-from .v1.actions import MAX_ACTIONS_PER_TURN, declaration_model, to_actions
-from .v1.state import RUNG_NAMES, Action, WorldState
+from . import display
+from .actions import MAX_ACTIONS_PER_TURN, declaration_model, describe, to_actions
+from .proxy import State
+from .scenario import Scenario
+from .state import Action, WorldState
 
 SYSTEM_PROMPT = (
     "You are the national command authority of one state in a strategic crisis "
@@ -32,8 +30,8 @@ SYSTEM_PROMPT = (
     "`assessment`."
 )
 
-#: Appended when the scenario is not in English. The field names stay English —
-#: they are a wire format, not prose — but everything the model writes is read by
+#: Appended when the scenario is not in English. Field names and action
+#: identifiers stay English, because they are a wire format; the prose is read by
 #: the room, so it is written in the room's language.
 LANGUAGE_NOTE = (
     "Write `rationale` and `assessment` in {language}. Keep the field names and "
@@ -42,12 +40,36 @@ LANGUAGE_NOTE = (
 
 LANGUAGE_NAMES = {"en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "French"}
 
+Offered = dict[str, tuple[str, ...] | None]
+
 
 def system_prompt(language: str) -> str:
     if language == "en":
         return SYSTEM_PROMPT
     name = LANGUAGE_NAMES.get(language, language)
     return SYSTEM_PROMPT + " " + LANGUAGE_NOTE.format(language=name)
+
+
+def offered_actions(scenario: Scenario, world: WorldState, actor: str, rng) -> Offered:
+    """What `actor` may declare now: the scenario's `offer`, or everything."""
+    if scenario.ruleset.offer is None:
+        places = tuple(world.places)
+        return {
+            t: (places if "place" in (spec.get("fields") or ()) else None)
+            for t, spec in scenario.actions.items()
+        }
+    s = State(world, rng, scenario.resource_bounds(), scenario.attribute_bounds())
+    return dict(scenario.ruleset.offer(s.read_only("offer"), actor))
+
+
+def believed(scenario: Scenario, world: WorldState, actor: str, rng) -> WorldState:
+    """What `actor` believes the world looks like: the `view` hook on a copy."""
+    if scenario.ruleset.view is None:
+        return world
+    s = State(world, rng, scenario.resource_bounds(), scenario.attribute_bounds()).scratch()
+    scenario.ruleset.view(s, actor)
+    # Last turn's events are public, and a fresh working copy starts without them.
+    return dataclasses.replace(s.freeze(), events=world.events)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,29 +85,28 @@ class PlayerTurn:
 @dataclasses.dataclass(frozen=True)
 class Player:
     actor_id: str
-    briefing: str
-    model: str
+    scenario: Scenario
     engine: Engine
-    language: str = "en"
 
-    def view(self, state: WorldState, rng: random.Random) -> tuple[str, tuple[str, ...]]:
+    @property
+    def model(self) -> str:
+        return self.scenario.model(self.actor_id)
+
+    def view(self, world: WorldState, rng: random.Random) -> tuple[str, Offered]:
         """What this actor sees, and what it may say.
 
-        Split out from `decide` so the random draws happen in a fixed order across
-        actors while the calls themselves go out together. Determinism lives here;
-        concurrency lives in the caller.
+        Split from `decide` so the random draws happen in a fixed order across
+        actors while the calls go out together.
         """
-        seen = rules.perturb_view(state, self.actor_id, rng)
-        legal = rules.legal_action_types(state, self.actor_id)
-        return build_prompt(self.actor_id, self.briefing, seen, legal), legal
+        seen = believed(self.scenario, world, self.actor_id, rng)
+        offered = offered_actions(self.scenario, world, self.actor_id, rng)
+        return build_prompt(self.actor_id, self.scenario, seen, offered), offered
 
-    async def decide(
-        self, state: WorldState, prompt: str, legal: tuple[str, ...]
-    ) -> PlayerTurn:
-        schema = declaration_model(
-            self.actor_id, legal, tuple(state.regions), tuple(sorted(state.actors))
+    async def decide(self, world: WorldState, prompt: str, offered: Offered) -> PlayerTurn:
+        schema = declaration_model(self.actor_id, offered, self.scenario)
+        context = Context(
+            [Message.system(system_prompt(self.scenario.language())), Message.user(prompt)]
         )
-        context = Context([Message.system(system_prompt(self.language)), Message.user(prompt)])
         declaration = await self.engine.create(context, schema)
         return PlayerTurn(
             actions=to_actions(declaration, self.actor_id),
@@ -97,123 +118,106 @@ class Player:
         )
 
 
-def build_prompt(actor_id: str, briefing: str, view: WorldState, legal: tuple[str, ...]) -> str:
-    """Assemble what one actor sees. Returned as a string on purpose: it goes in
-    the transcript verbatim and the replayer shows it to the audience."""
+def build_prompt(actor_id: str, scenario: Scenario, view: WorldState, offered: Offered) -> str:
+    """Assemble what one actor sees. A string on purpose: it goes in the
+    transcript verbatim and the replayer shows it to the audience."""
     me = view.actors[actor_id]
     lines = [
         f"TURN {view.turn}. You are {me.name} ({actor_id}).",
         "",
         "YOUR STANDING ORDERS",
-        briefing.strip(),
+        scenario.briefing(actor_id).strip(),
         "",
         "YOUR POSITION",
-        f"  sustainment: {me.fuel_days:.0f} fuel-days ({_fuel_band(me.fuel_days)})",
-        f"  munitions {me.munitions:.0f}/100 · political capital {me.political_capital:.0f}/100",
-        (
-            f"  domestic support {me.domestic_support:.0f}/100 · "
-            f"international legitimacy {me.intl_legitimacy:.0f}/100"
-        ),
-        f"  intelligence quality: {_isr_band(me.isr)}",
-        (
-            "  reserves you can still call up: "
-            f"{me.reserve_pool * rules.TROOPS_PER_STRENGTH_POINT:,.0f} personnel"
-        ),
-        (
-            f"  highest rung you have reached: {me.escalation_rung} "
-            f"({RUNG_NAMES[me.escalation_rung]})"
-        ),
-        "",
-        "YOUR FORCES (exact)",
     ]
-    lines += [f"  {_force_line(f)}" for f in view.forces_of(actor_id)] or ["  none"]
+    lines += [
+        f"  {display.label(scenario, k)}: {display.shown(scenario, k, v, exact=True)}"
+        for k, v in me.resources.items()
+    ]
+    rung = _rung(scenario, me.resources)
+    if rung:
+        lines.append(f"  highest rung you have reached: {rung}")
+
+    lines += ["", "YOUR UNITS (exact)"]
+    own = [e for e in view.entities if e.owner == actor_id]
+    lines += [f"  {_entity_line(scenario, e)}" for e in own] or ["  none"]
 
     lines += ["", "OTHER ACTORS"]
     for other_id, other in view.actors.items():
         if other_id == actor_id:
             continue
+        shown = ", ".join(
+            f"{display.label(scenario, k)} {display.shown(scenario, k, other.resources[k], False)}"
+            for k in display.standing(scenario)
+            if k in other.resources
+        )
+        rung = _rung(scenario, other.resources)
         lines.append(
-            f"  {other.name} ({other_id}): sustainment {_fuel_band(other.fuel_days)}, "
-            f"legitimacy {_band(other.intl_legitimacy)}, "
-            f"highest rung {other.escalation_rung} ({RUNG_NAMES[other.escalation_rung]})"
+            f"  {other.name} ({other_id}): {shown}" + (f", highest rung {rung}" if rung else "")
         )
 
-    lines += ["", f"FORCES YOU CAN SEE (estimates — your intelligence is {_isr_band(me.isr)})"]
-    foreign = [f for f in view.forces if f.owner != actor_id]
-    lines += [f"  {_force_line(f)} (estimate)" for f in foreign] or ["  none detected"]
+    lines += ["", "UNITS YOU CAN SEE (estimates)"]
+    foreign = [e for e in view.entities if e.owner != actor_id]
+    lines += [f"  {_entity_line(scenario, e, estimate=True)}" for e in foreign] or [
+        "  none detected"
+    ]
 
     lines += ["", "MAP"]
-    for region in view.regions.values():
-        holder = region.owner or "unclaimed"
+    for place in view.places.values():
+        attrs = display.attributes(scenario, place.attrs)
         lines.append(
-            f"  {region.id} ({region.name}, {region.terrain}, pop {region.population:,}): "
-            f"held by {holder}, control {region.control:.0f}%, "
-            f"infrastructure {region.infrastructure:.0f}%, "
-            f"civilian distress {region.civilian_distress:.0f}%"
-            + (f", adjacent to {', '.join(region.adjacency)}" if region.adjacency else "")
+            f"  {place.id} ({place.name}): held by {place.owner or 'nobody'}"
+            + (f", {attrs}" if attrs else "")
+            + (f", adjacent to {', '.join(place.adjacency)}" if place.adjacency else "")
         )
 
-    if view.log:
+    if view.events:
         lines += ["", "WHAT HAPPENED LAST TURN"]
-        lines += [f"  {_resolution_line(r)}" for r in view.log]
+        lines += [f"  {_event_line(e)}" for e in view.events]
 
-    lines += ["", "ACTIONS AVAILABLE TO YOU THIS TURN", "  " + ", ".join(legal)]
-    for action_type in legal:
-        if action_type not in rules.DELIVERY_KINDS:
-            continue
-        reach = rules.reachable_regions(view, actor_id, action_type)
-        lines.append(
-            f"  {action_type} can reach: "
-            + (", ".join(reach) if reach else "nowhere right now")
-        )
+    lines += ["", "ACTIONS AVAILABLE TO YOU THIS TURN"]
+    for action_type, places in sorted(offered.items()):
+        description = describe(scenario.actions.get(action_type, {}), scenario.language())
+        where = f" Can reach: {', '.join(places) if places else 'nowhere'}." if places else ""
+        lines.append(f"  {action_type} — {description}{where}")
 
     lines += [
         "",
         (
             f"Declare between 1 and {MAX_ACTIONS_PER_TURN} actions. Each action type "
-            "carries only the fields it uses: a supply names an actor, a strike names a "
-            "region. Aiming an action at a region it cannot reach wastes the turn."
+            "carries only the fields it uses. Aiming an action at a place it cannot "
+            "reach wastes the turn."
         ),
     ]
     return "\n".join(lines)
 
 
-def _force_line(force) -> str:
+def _rung(scenario: Scenario, resources: dict[str, float]) -> str | None:
+    resource = (scenario.display.get("ladder") or {}).get("resource")
+    if not resource or resource not in resources:
+        return None
+    value = int(resources[resource])
+    name = display.rung_label(scenario, value)
+    return f"{value} ({name})" if name else str(value)
+
+
+def _entity_line(scenario: Scenario, entity, estimate: bool = False) -> str:
+    attrs = ", ".join(
+        f"{k} {v:.0f}"
+        if isinstance(v, float) and k == "strength"
+        else f"{k} {display.number(v)}"
+        for k, v in entity.attrs.items()
+        if k not in display.hidden(scenario)
+    )
+    tail = " (estimate)" if estimate else ""
     return (
-        f"{force.id}: {force.kind} strength {force.strength:.0f} in {force.region}, "
-        f"posture {force.posture}, readiness {force.readiness:.0%}"
+        f"{entity.id}: {entity.kind} in {entity.place}" + (f", {attrs}" if attrs else "") + tail
     )
 
 
-def _resolution_line(resolution) -> str:
-    where = f" [{resolution.region}]" if resolution.region else ""
-    who = f"{resolution.actor}: " if resolution.actor else ""
-    return f"{who}{resolution.kind}{where} — {resolution.reason}"
-
-
-def _fuel_band(days: float) -> str:
-    if days <= 0:
-        return "exhausted"
-    if days < 15:
-        return "critical"
-    if days < 45:
-        return "strained"
-    return "sufficient"
-
-
-def _isr_band(isr: float) -> str:
-    if isr >= 0.8:
-        return "excellent"
-    if isr >= 0.5:
-        return "adequate"
-    if isr >= 0.25:
-        return "poor"
-    return "very poor"
-
-
-def _band(value: float) -> str:
-    if value >= 70:
-        return "high"
-    if value >= 40:
-        return "moderate"
-    return "low"
+def _event_line(event) -> str:
+    d = event.detail
+    who = f"{d['actor']}: " if d.get("actor") else ""
+    where = f" [{d['place']}]" if d.get("place") else ""
+    reason = f" — {d['reason']}" if d.get("reason") else ""
+    return f"{who}{event.id}{where}{reason}"
