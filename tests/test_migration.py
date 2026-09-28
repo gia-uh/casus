@@ -38,7 +38,14 @@ ACTOR_RESOURCES = (
     "fuel_days", "fuel_inflow", "munitions", "political_capital", "domestic_support",
     "intl_legitimacy", "isr", "reserve_pool", "escalation_rung",
 )  # fmt: skip
-PLACE_ATTRS = ("control", "infrastructure", "civilian_distress", "population", "terrain", "country")
+PLACE_ATTRS = (
+    "control",
+    "infrastructure",
+    "civilian_distress",
+    "population",
+    "terrain",
+    "country",
+)
 FORCE_ATTRS = ("strength", "readiness", "posture")
 
 #: v1 fields v2 drops on purpose. `relations` was carried in the state and the
@@ -89,7 +96,8 @@ def project_v2(world: WorldState) -> dict[str, object]:
     for a, actor in world.actors.items():
         out[f"actor.{a}.name"] = actor.name
         for k, v in actor.resources.items():
-            out[f"actor.{a}.{k}"] = v
+            if k not in V2_ONLY:
+                out[f"actor.{a}.{k}"] = v
     for p, place in world.places.items():
         out[f"place.{p}.name"] = place.name
         out[f"place.{p}.owner"] = place.owner
@@ -103,6 +111,24 @@ def project_v2(world: WorldState) -> dict[str, object]:
         for k, v in e.attrs.items():
             out[f"entity.{e.id}.{k}"] = v
     return out
+
+
+RECOVERY_RATES = ("RECONSTRUCTION_RATE", "DISTRESS_RELIEF_RATE", "SUPPORT_RECOVERY_RATE")
+
+#: v2 quantities with no v1 counterpart. The recovery rules read the baseline;
+#: with the rates at zero it never changes.
+V2_ONLY = {"support_baseline"}
+
+
+def without_recovery() -> Scenario:
+    """The Caribbean on the reference ruleset with the ratchet repair switched
+    off: v1's physics exactly, which is what the recording can be held to."""
+    scenario = Scenario.load(CARIBBEAN, validate=False)
+    source = scenario.rules_source
+    for name in RECOVERY_RATES:
+        line = next(ln for ln in source.splitlines() if ln.startswith(f"{name} = "))
+        source = source.replace(line, f"{name} = 0.0")
+    return Scenario.from_parts(scenario.data, source)
 
 
 def v1_action(record: dict) -> Action:
@@ -145,9 +171,18 @@ def test_the_ported_caribbean_reproduces_its_recorded_trajectory():
     first divergence names the turn and the quantity."""
     records = engine.read_records(REFERENCE_RUN)
     recorded = [r for r in records if r["kind"] == "state"]
-    replayed = engine.replay_on(Scenario.load(CARIBBEAN), REFERENCE_RUN, translate=v1_action)
+    replayed = engine.replay_on(without_recovery(), REFERENCE_RUN, translate=v1_action)
     assert len(recorded) == len(replayed.states) == 13
     assert first_divergence(recorded, replayed.states) == ""
+
+
+@requires_reference
+def test_the_recovery_rates_really_are_switched_off():
+    """If one of the rates were missed, the acceptance test would compare v1
+    against a repaired ruleset and fail for the wrong reason, or pass by luck."""
+    source = without_recovery().rules_source
+    for name in RECOVERY_RATES:
+        assert f"\n{name} = 0.0\n" in source
 
 
 def test_an_unmapped_v1_field_fails_by_name():

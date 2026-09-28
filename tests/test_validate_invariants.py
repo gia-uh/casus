@@ -150,13 +150,18 @@ def test_a_quantity_that_eases_linearly_to_its_floor_is_not_pinned():
     assert findings == []
 
 
-def test_the_gate_rejects_the_reference_physics_when_the_ratchet_is_declared():
-    """The evidence the spec cares about, in CI: the reference ruleset as ported
-    from v1 cannot raise domestic support or lower distress."""
+def test_the_gate_rejects_v1s_physics_when_the_ratchet_is_declared():
+    """The evidence the spec cares about, in CI: the reference ruleset with its
+    recovery rates at zero is v1's physics, and it cannot raise domestic support
+    or lower distress."""
     reference = Scenario.load(SCENARIOS / "reference")
     data = yaml.safe_load(yaml.safe_dump(reference.data))
     data["resources"]["domestic_support"]["monotone"] = False
     data["attributes"]["civilian_distress"]["monotone"] = False
-    findings = check_invariants(Scenario.from_parts(data, reference.rules_source))
+    source = reference.rules_source
+    for name in ("RECONSTRUCTION_RATE", "DISTRESS_RELIEF_RATE", "SUPPORT_RECOVERY_RATE"):
+        line = next(ln for ln in source.splitlines() if ln.startswith(f"{name} = "))
+        source = source.replace(line, f"{name} = 0.0")
+    findings = check_invariants(Scenario.from_parts(data, source))
     monotone = {f.message.split("'")[1] for f in findings if f.code == "monotone-quantity"}
     assert monotone == {"domestic_support", "civilian_distress"}

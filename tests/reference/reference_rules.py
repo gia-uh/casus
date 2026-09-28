@@ -44,7 +44,14 @@ def to_v2(world: WorldState) -> World2:
     return World2(
         turn=world.turn,
         actors={
-            a: Actor(id=a, name=s.name, resources={k: getattr(s, k) for k in ACTOR_FIELDS})
+            a: Actor(
+                id=a,
+                name=s.name,
+                resources={
+                    **{k: getattr(s, k) for k in ACTOR_FIELDS},
+                    "support_baseline": s.domestic_support,
+                },
+            )
             for a, s in world.actors.items()
         },
         places={
@@ -97,7 +104,11 @@ def to_v1(world: World2, relations: dict[str, int]) -> WorldState:
             a: ActorState(
                 id=a,
                 name=actor.name,
-                **{k: v for k, v in actor.resources.items() if k != "escalation_rung"},
+                **{
+                    k: v
+                    for k, v in actor.resources.items()
+                    if k not in ("escalation_rung", "support_baseline")
+                },
                 escalation_rung=int(actor.resources["escalation_rung"]),
             )
             for a, actor in world.actors.items()
@@ -166,11 +177,15 @@ class _Rules:
         return to_v1(new, world.relations), [to_resolution(e) for e in events]
 
     def legal_action_types(self, world: WorldState, actor: str) -> tuple[str, ...]:
-        offered = REFERENCE.ruleset.offer(_state(world, random.Random(0)).read_only("offer"), actor)
+        offered = REFERENCE.ruleset.offer(
+            _state(world, random.Random(0)).read_only("offer"), actor
+        )
         return tuple(sorted(offered))
 
     def reachable_regions(self, world: WorldState, actor: str, action_type: str):
-        offered = REFERENCE.ruleset.offer(_state(world, random.Random(0)).read_only("offer"), actor)
+        offered = REFERENCE.ruleset.offer(
+            _state(world, random.Random(0)).read_only("offer"), actor
+        )
         return tuple(offered.get(action_type) or ())
 
     def perturb_view(self, world: WorldState, actor: str, rng: random.Random) -> WorldState:

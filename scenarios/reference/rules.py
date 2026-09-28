@@ -5,8 +5,8 @@ supply, movement, the escalation high-water mark, the occupation ratio,
 civilian distress and legitimacy. The coefficients and their comments came
 across from v1 unchanged, because the comments are the provenance.
 
-The port is verbatim, defect included: nothing here lets distress fall or
-domestic support rise. Where v1 read a value captured before a change in the
+The port is verbatim, and the recovery rules at the end repair v1's ratchet;
+with their three rates at zero the ruleset is v1 exactly. Where v1 read a value captured before a change in the
 same turn, the port captures it too, so the arithmetic lands on the same bits.
 
 Resolution order, as in v1:
@@ -166,6 +166,34 @@ SUPPORT_COST_PER_DISTRESS = 0.05
 
 #: Rung at or above which an action counts as causing civilian harm.
 HARM_RUNG = 5
+
+# --- recovery ---------------------------------------------------------------
+#
+# v1 had none of these, so distress could only rise and domestic support could
+# only fall: the ratchet that drove Cuban support to zero by turn six with every
+# actor holding. The three rates are design choices with no published source,
+# and SOURCES.md says so. They were chosen so that, in the Caribbean with every
+# actor holding, the crisis bottoms out and starts to turn inside the scenario's
+# twelve days: Cuban distress peaks on day 5 and support, having fallen from 52
+# to about 22, rises again on day 12. Setting all three to zero gives back v1
+# exactly, which is how the acceptance test replays v1's recording.
+
+#: Fraction of the gap to full infrastructure rebuilt per turn in a place not
+#: attacked this turn. About half the damage is repaired in eleven days.
+RECONSTRUCTION_RATE = 0.06
+
+#: Fraction of civilian distress that eases per turn in a quiet place. Damage
+#: still adds 0.25 per missing point each turn, so distress settles near 1.7
+#: times the missing infrastructure and falls as the place is rebuilt.
+DISTRESS_RELIEF_RATE = 0.15
+
+#: Fraction of the gap to its baseline that an actor's domestic support recovers
+#: per turn. Against the distress cost of 0.05 per point, summed over the
+#: actor's places, support settles near baseline minus a fifth of that sum.
+SUPPORT_RECOVERY_RATE = 0.25
+
+#: Actions that damage the place they target, and so stop it recovering this turn.
+DAMAGING_ACTIONS = frozenset({"strike", "air_campaign", "invade"})
 
 
 #: Action types that actually cause an exchange in a region.
@@ -715,6 +743,41 @@ def update_distress_and_legitimacy(s):
         cost = SUPPORT_COST_PER_DISTRESS * region.civilian_distress
         if cost > 0:
             s.add(s.actor(region.owner).domestic_support, -cost)
+
+
+
+def _attacked(s):
+    return {a.place for a in s.actions if a.type in DAMAGING_ACTIONS and a.place}
+
+
+@rule(phase="consequences")
+def reconstruction(s):
+    """Unattacked places rebuild toward full infrastructure."""
+    attacked = _attacked(s)
+    for place in s.places:
+        if place.id not in attacked and place.population > 0:
+            s.decay(place.infrastructure, toward=100.0, rate=RECONSTRUCTION_RATE)
+
+
+@rule(phase="consequences")
+def distress_eases(s):
+    """Distress eases in a quiet place: not attacked this turn, and its owner not
+    out of fuel. A blockade that has run a country dry keeps hurting civilians
+    with nobody firing a shot, which is the pressure-campaign branch."""
+    attacked = _attacked(s)
+    for place in s.places:
+        if place.id in attacked or place.population <= 0:
+            continue
+        if place.owner and s.happened("fuel_exhausted", actor=place.owner):
+            continue
+        s.decay(place.civilian_distress, toward=0.0, rate=DISTRESS_RELIEF_RATE)
+
+
+@rule(phase="consequences")
+def support_recovers(s):
+    """Domestic support drifts back toward each actor's baseline."""
+    for actor in s.actors:
+        s.decay(actor.domestic_support, toward=actor.support_baseline, rate=SUPPORT_RECOVERY_RATE)
 
 
 # --- what players are offered, and what they see ----------------------------

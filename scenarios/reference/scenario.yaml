@@ -32,6 +32,9 @@ resources:
   escalation_rung:
     min: 0
     max: 7
+  support_baseline:
+    min: 0
+    max: 100
 attributes:
   control:
     min: 0
@@ -202,6 +205,7 @@ actors:
       isr: 0.85
       reserve_pool: 0.0
       escalation_rung: 0
+      support_baseline: 70.0
   GREEN:
     name: Green
     model: qwen/qwen3-32b
@@ -228,6 +232,7 @@ actors:
       isr: 0.3
       reserve_pool: 0.0
       escalation_rung: 0
+      support_baseline: 70.0
 places:
   g-capital:
     name: Green Capital
