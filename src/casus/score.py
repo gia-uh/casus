@@ -72,7 +72,7 @@ def score(path: pathlib.Path | str) -> Score:
     else:
         try:
             engine.replay(path)
-        except engine.ReplayMismatch as exc:
+        except (engine.ReplayMismatch, engine.RuleFailed) as exc:
             reproducible, replay_error = False, str(exc)
 
     return Score(

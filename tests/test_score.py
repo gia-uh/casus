@@ -110,3 +110,21 @@ def test_a_transcript_that_predates_the_format_says_so_instead_of_failing(tmp_pa
     assert not result.replayable
     assert not result.reproducible
     assert "predates" in result.replay_error
+
+
+def test_a_run_that_ended_in_a_rule_error_scores_instead_of_crashing(tmp_path):
+    import pytest
+
+    scenario = Scenario.load(REFERENCE)
+    source = scenario.rules_source + (
+        "\n\n@rule(phase='consequences')\ndef broken_later(s):\n"
+        "    if s.turn >= 2:\n        s.place('atlantis')\n"
+    )
+    broken = Scenario.from_parts(scenario.data, source)
+    out = tmp_path / "run.jsonl"
+    with pytest.raises(engine.RuleFailed):
+        engine.run(broken, seed=3, out=out, engines={a: FakeEngine() for a in broken.actors},
+                   turns=4)  # fmt: skip
+    result = score.score(out)
+    assert not result.reproducible
+    assert "broken_later" in result.replay_error

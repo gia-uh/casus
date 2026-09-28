@@ -212,7 +212,8 @@ const L = key => LABELS[key] || String(key).replace(/_/g, ' ');
 /* Action identifiers are a wire format, so the engine keeps them in English.
    The room is not reading a wire format. */
 const A = L;
-const LADDER = DISPLAY.ladder || null;
+/* A ladder is drawn only when a resource holds each actor's rung. */
+const LADDER = (DISPLAY.ladder && DISPLAY.ladder.resource) ? DISPLAY.ladder : null;
 const RUNGS = LADDER ? (LADDER[LANG] || LADDER.en || []) : [];
 const STANDING = DISPLAY.standing || Object.keys(scenario.resources || {});
 const MAPD = DISPLAY.map || {};

@@ -21,14 +21,18 @@ def label(scenario: Scenario, name: str) -> str:
 
 
 def band(scenario: Scenario, name: str, value: float) -> str | None:
-    """The first band whose upper bound the value is below, or None."""
+    """The first band whose upper bound the value is below; the last band above
+    all of them. None when the quantity has no bands."""
     bands = (scenario.display.get("bands") or {}).get(name)
     if not bands:
         return None
-    for bound, text in sorted(bands.items(), key=lambda item: float(item[0])):
+    ordered = sorted(bands.items(), key=lambda item: float(item[0]))
+    for bound, text in ordered:
         if float(value) < float(bound):
             return str(text)
-    return None
+    # Open-ended at the top: a value past the last bound gets the last band,
+    # never the exact figure the band exists to hide.
+    return str(ordered[-1][1])
 
 
 def number(value: Any) -> str:

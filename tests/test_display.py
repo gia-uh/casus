@@ -42,3 +42,14 @@ def test_a_banded_value_hides_the_number_when_not_exact():
 
 def test_map_coordinates_are_hidden_by_default():
     assert {"lat", "lon"} <= set(display.hidden(SMOKE))
+
+
+def test_a_value_above_the_last_bound_gets_the_last_band_not_the_exact_figure():
+    """The spec's own example ends at 1.0 without `.inf`; a value of 1.0 must not
+    leak as a number to other actors."""
+    data = {
+        **SMOKE.data,
+        "display": {**SMOKE.display, "bands": {"stamina": {30: "low", 60: "high"}}},
+    }
+    s = Scenario.from_parts(data, SMOKE.rules_source)
+    assert display.shown(s, "stamina", 75.0, exact=False) == "high"
