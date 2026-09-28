@@ -186,6 +186,14 @@ const RUNGS_BY_LANG = {
 
 /* The replayer speaks whatever language the scenario declares. A rationale the
    room cannot read is a rationale the room cannot check. */
+const ACTIONS_ES = {
+  hold:"mantener", statement:"declaración", negotiate:"negociar", concede:"ceder",
+  sanction:"sancionar", supply:"abastecer", mobilize:"movilizar", deploy:"desplegar",
+  disperse:"dispersar", harden:"fortificar", blockade:"bloquear", cyber:"ciberataque",
+  covert:"operación encubierta", strike:"ataque", air_campaign:"campaña aérea",
+  invade:"invadir",
+};
+
 const STRINGS = {
   en: {theatre:"Theatre", ladder:"Escalation ladder — highest rung reached",
        standing:"Standing — fuel · legitimacy · domestic support",
@@ -211,7 +219,12 @@ const SOFT = new Set(['supply_delivered','mobilized','legitimacy_cost','air_defe
 
 const header = RECORDS.find(r => r.kind === 'scenario') || {};
 const LANG = STRINGS[header.language] ? header.language : 'en';
-const S = key => STRINGS[LANG][key] || STRINGS.en[key] || key;
+/* `T` and not `S`: `S` is the map's scale constant further down, and naming
+   both the same silently shadowed one of them and blanked the page. */
+const T = key => STRINGS[LANG][key] || STRINGS.en[key] || key;
+/* Action identifiers are a wire format, so the engine keeps them in English.
+   The room is not reading a wire format. */
+const A = type => (LANG === 'es' ? (ACTIONS_ES[type] || type) : type);
 const RUNGS = RUNGS_BY_LANG[LANG] || RUNGS_BY_LANG.en;
 const scenario = header.scenario || {};
 const endRec = RECORDS.find(r => r.kind === 'end') || {};
@@ -371,9 +384,9 @@ function drawActors(snap) {
         </div>
       </div>
       <div class="barkey"><span style="width:9cqw;flex:0 0 auto"></span>
-        <span>${a.fuel_days.toFixed(0)}d ${S('fuel')}</span>
-        <span>${a.intl_legitimacy.toFixed(0)} ${S('legitimacy')}</span>
-        <span>${a.domestic_support.toFixed(0)} ${S('support')}</span></div>
+        <span>${a.fuel_days.toFixed(0)}d ${T('fuel')}</span>
+        <span>${a.intl_legitimacy.toFixed(0)} ${T('legitimacy')}</span>
+        <span>${a.domestic_support.toFixed(0)} ${T('support')}</span></div>
     </div>`;
   }).join('');
 }
@@ -382,7 +395,7 @@ function drawTicker(frame) {
   const box = document.getElementById('ticker');
   box.innerHTML = frame.narrative
     ? frame.narrative
-    : `<span class="quiet">${S('noticker')}</span>`;
+    : `<span class="quiet">${T('noticker')}</span>`;
 }
 
 function drawLog(frame) {
@@ -396,8 +409,8 @@ function drawLog(frame) {
     seen.add(a.actor);
     if (!key) return;
     parts.push(`<div class="entry ${colourOf(a.actor)}">
-      <b>${nameOf(a.actor)}</b> <span class="act">${act.type}${where}</span>
-      ${act.intensity > 1 ? `<span class="rung"> ·${S('intensity')} ${act.intensity}</span>` : ''}
+      <b>${nameOf(a.actor)}</b> <span class="act">${A(act.type)}${where}</span>
+      ${act.intensity > 1 ? `<span class="rung"> ·${T('intensity')} ${act.intensity}</span>` : ''}
       ${why}</div>`);
   });
 
@@ -407,14 +420,14 @@ function drawLog(frame) {
   });
 
   document.getElementById('log').innerHTML = parts.join('') ||
-    `<div class="res">${S('nothing')}</div>`;
+    `<div class="res">${T('nothing')}</div>`;
 }
 
 function drawDrawer(frame) {
   const prompts = frame.prompts;
   if (!prompts.length) {
     document.getElementById('drawersel').innerHTML = '';
-    document.getElementById('promptbody').textContent = S('noprompt');
+    document.getElementById('promptbody').textContent = T('noprompt');
     return;
   }
   if (!prompts.some(p => p.actor === drawerActor)) drawerActor = prompts[0].actor;
@@ -434,8 +447,8 @@ function render() {
   if (!frame.state) return;
   const snap = frame.state.state;
   document.getElementById('title').textContent = header.name || 'run';
-  document.getElementById('day').textContent = `${S('day')} ${turn}`;
-  document.getElementById('counter').textContent = `${S('turn')} ${turn} / ${maxTurn}`;
+  document.getElementById('day').textContent = `${T('day')} ${turn}`;
+  document.getElementById('counter').textContent = `${T('turn')} ${turn} / ${maxTurn}`;
   document.getElementById('progress').firstElementChild.style.width =
     (maxTurn > minTurn ? (turn - minTurn) / (maxTurn - minTurn) * 100 : 100) + '%';
   document.getElementById('tokens').textContent = endRec.prompt_tokens
@@ -462,7 +475,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') { turn = Math.max(minTurn, turn - 1); render(); }
 });
 
-document.querySelectorAll('[data-s]').forEach(el => { el.textContent = S(el.dataset.s); });
+document.querySelectorAll('[data-s]').forEach(el => { el.textContent = T(el.dataset.s); });
 document.documentElement.lang = LANG;
 render();
 </script>

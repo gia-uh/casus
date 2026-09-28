@@ -91,3 +91,26 @@ _HOSTILE = {
     "rationale": "we will </script><h1>own the page</h1> hold",
     "assessment": "",
 }
+
+
+def test_the_bundled_script_is_syntactically_valid(transcript, tmp_path):
+    """The browser caught two defects the suite could not see, and the second was
+    a plain name collision. Parsing the script costs nothing and would have."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed; this guard needs a JS parser")
+
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    code = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
+    assert code, "the bundle carries no script block"
+    js = tmp_path / "bundled.js"
+    js.write_text(code[-1])
+
+    result = subprocess.run(
+        [node, "--check", str(js)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0 and not result.stderr, result.stderr[:400]
