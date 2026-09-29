@@ -319,12 +319,13 @@ Design and evaluate add their own endpoints in their own specs.
 
 ## The frontend
 
-Plain HTML, CSS and JavaScript modules in `ui/`, with no build step and no
-package manager. It replaces `ui/replay.html`.
+Plain HTML, CSS and JavaScript in `ui/`, with no build step and no package
+manager. It replaces `ui/replay.html`.
 
-- The viewer, the map and the place card are modules the app loads and the
-  bundle inlines, so `casus bundle` still writes one file that loads nothing
-  from the network. The existing test that the bundle names no network URL
+- The scripts are classic scripts, not ES modules, loaded in a fixed order and
+  attached to one global `Casus` namespace. The app loads them with `<script
+  src>`; the bundle concatenates them inline, so `casus bundle` still writes
+  one file that loads nothing from the network. The existing test that the bundle names no network URL
   keeps guarding that.
 - Fonts come from the system stack in the bundle. The app may use web fonts
   when it is online; the bundle must not depend on them.
@@ -366,9 +367,9 @@ shows no attribute bars.
   found three defects in the mockup that the code read as correct (chat text
   breaking into columns from a clashing class name, a recorded run frozen
   mid-resolution, a place card describing a state the screen had left). It
-  runs in CI in its own job, with Playwright's Chromium. It also replaces the
-  `node --check` guard as the evidence that the scripts parse: `node --check`
-  exits 0 on a syntax error in an ES module, and the new `ui/` is modules.
+  runs in CI in its own job, with Playwright's Chromium. The existing
+  `node --check` guard stays and keeps meaning something only because the
+  scripts are classic: on an ES module it exits 0 even with a syntax error.
 
 ## Order of work
 
