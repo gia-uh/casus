@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 from scenariopaths import SCENARIOS
 
-from casus import narrator
+from casus import display, narrator
 from casus.scenario import Scenario
 from casus.state import Event
 from helpers import FakeEngine
@@ -24,6 +24,20 @@ def _predicates(*texts):
 def _scenario(**display_overrides):
     data = {**SMOKE.data, "display": {**SMOKE.display, **display_overrides}}
     return Scenario.from_parts(data, SMOKE.rules_source)
+
+
+def _spanish_scenario_with_label(actor_id: str, label: str):
+    data = {
+        **SMOKE.data,
+        "language": "es",
+        "display": {**SMOKE.display, "labels": {"es": {actor_id: label}}},
+    }
+    scenario = Scenario.from_parts(data, SMOKE.rules_source)
+    return scenario, scenario.initial_state()
+
+
+def _engine_replying(predicates: list[str]):
+    return FakeEngine({"predicates": predicates})
 
 
 def _narrate(events=(), engine=None, scenario=SMOKE, world=WORLD):
@@ -130,3 +144,13 @@ def test_the_dispatch_describes_the_turn_that_just_resolved():
 
     _, engine = _narrate([_fact()], world=dataclasses.replace(WORLD, turn=6))
     assert engine.prompts[0].startswith("DAY 5.")
+
+
+def test_the_subject_is_the_actor_label_in_the_scenario_language():
+    """The narrator wrote 'Third parties transferido…' because it used the
+    actor's English name in front of a Spanish predicate."""
+    scenario, world = _spanish_scenario_with_label("BLUE", "Azules")
+    fact = Event(id="resupplied", detail={"actor": "BLUE", "reason": "sent supplies"})
+    engine = _engine_replying(["enviaron suministros"])
+    text = asyncio.run(narrator.narrate(world, [fact], engine, scenario))
+    assert text.startswith(display.actor_label(scenario, "BLUE") + " ")

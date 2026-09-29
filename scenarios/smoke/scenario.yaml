@@ -78,10 +78,13 @@ display:
   bands:
     supplies: {10: short, 30: adequate, .inf: plentiful}
   labels:
-    es: {stamina: aguante, supplies: suministros}
+    es: {stamina: aguante, supplies: suministros, BLUE: Azules, RED: Rojos,
+         b-home: Base azul, border: La frontera, r-home: Base roja}
   ladder:
     en: [calm, manoeuvre, raids]
     es: [calma, maniobra, asaltos]
   unreported: []
   plausibility:
     stamina: {min: 0, max: 100, source: smoke-is-not-a-model}
+  card: [infra]
+  worse_when_higher: []
