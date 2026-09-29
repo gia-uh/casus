@@ -6,11 +6,11 @@
 
 **Architecture:** `engine.run_async` gains an `observer` that receives every record after it is in the file. `server/runs.py` holds a `RunManager` that starts runs as asyncio tasks and keeps each run's messages in memory, numbered by `seq`; `subscribe` walks that list and then waits on a condition, so catching up and following live are one loop over one list. `server/sse.py` turns a message iterator into a `text/event-stream` response. `create_app` gains `POST /api/runs` and `GET /api/runs/{id}/events`. In the browser, `shell.js` adds the Run button and the `#/run/<scenario>` route with the setup form, `viewer.js` gains `follow()` (an `EventSource` feeding a `RunModel`) and the live pacing fixes, and `RunModel.push` drops a message whose `seq` it has already seen.
 
-**Tech Stack:** Python 3.12, FastAPI, uvicorn, plain JS, pytest, Playwright (Python) with Chromium. No new dependency: server-sent events are written by hand.
+**Tech Stack:** Python 3.13, FastAPI, uvicorn, plain JS, pytest, Playwright (Python) with Chromium. No new dependency: server-sent events are written by hand.
 
 **Specs:** `docs/specs/2026-09-28-interface-design.md`, sections "Live runs", "Pacing", "The server", "Testing". Master plan: `docs/plans/2026-09-29-casus-app-plan.md` (Contracts, Global Constraints, File structure and Review Focus are binding). Slice 1 plan: `docs/plans/2026-09-29-slice-1-viewer.md`; this slice extends its code and reuses its test fixtures.
 
-**Before you start:** slice 1 is merged. Cut `5-slice-3-live-runs` from `origin/main` in `.claude/worktrees/`, run `uv sync --all-extras`, and `uv run playwright install chromium` if the browser suite skips.
+**Before you start:** slice 1 is merged. Cut `5-slice-3-live-runs` from `origin/main` in `.claude/worktrees/`, run `uv sync`, and `uv run playwright install chromium` if the browser suite skips.
 
 ## Design decisions
 

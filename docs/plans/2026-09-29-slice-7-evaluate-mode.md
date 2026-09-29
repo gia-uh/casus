@@ -6,7 +6,7 @@
 
 **Architecture:** `studies.py` groups `runs/` by a digest of the scenario data and rules source each transcript carries. `evaluate/queries.py` holds the fixed queries (plain dicts plus a compact text for the model) and `evaluate/checker.py` the figure check; neither imports lovelaice. `evaluate/tools.py` and `evaluate/agent.py` wrap them in nine lovelaice tools and an agent built exactly as slice 6 builds the design agent. `RunManager.start_batch` reuses slice 3's run machinery behind a semaphore. `server/study.py` is the router, built like slice 6's `server/design.py`; `ui/js/study.js` is the screen and the home shelf's study actions.
 
-**Tech Stack:** Python 3.12 (3.13 for the `agents` extra), FastAPI, PyYAML, lovelaice 2.13.1 on lingo-ai 2.1, plain JS, pytest, node, Playwright.
+**Tech Stack:** Python 3.13, FastAPI, PyYAML, lovelaice 2.13.1 on lingo-ai 2.1 (a normal dependency), plain JS, pytest, node, Playwright.
 
 **Specs:** `docs/specs/2026-09-29-evaluate-mode-design.md` (all of it) and `docs/specs/2026-09-28-interface-design.md` ("The shell", "The study (evaluate mode)"). Master plan: `docs/plans/2026-09-29-casus-app-plan.md`; its contracts are binding. Slice 1's plan is the format and the source of `studies.py`, `create_app`, `shell.js`, `app.css`, the JS harness and the browser fixtures.
 
@@ -18,7 +18,7 @@ Slice 7 depends on slices 3 and 5. It uses these names exactly as their plans de
 
 - **Slice 3** (`docs/plans/2026-09-29-slice-3-live-runs.md`): `RunManager(runs_dir, engine_factory: Callable[[str], Engine] = engine.engine_for)` and its internals `self._runs: dict[str, _Run]`, `_Run()` with `.task` and `async .finish()`, `self._reserve(name, seed) -> Path` (creates `<name>-<seed>.jsonl` empty, or `-2`, `-3`… when taken), and `async self._play(run, scenario, path, seed, turns, engines, narrator)`. `create_app(*, scenarios_dir, runs_dir, settings=None, run_manager=None)`, whose body holds the manager in a local `manager`. `server/sse.py`: `event_stream(messages)` and `CLOSE`. Every failure ends a transcript with an `error` record (slice 3 Task 2). In `tests/helpers.py`: `RAIDING` and `LiveEngine`. `tests/browser/browser_support.serve(runs_dir, **app_kwargs)` passes `run_manager=` through.
 - **Slice 5** (`docs/plans/2026-09-29-slice-5-settings.md`): `Settings.load(path=None, env=None)` with `agent_model`, `run_concurrency` (default 4), `endpoint`, `api_key`; `casus.settings.redact(text, secrets=None)` around any exception text shown or recorded.
-- **Slice 6** (`docs/plans/2026-09-29-slice-6-design-mode.md`), in either order: the evaluate agent is built the way slice 6's Tasks 4 and 5 build the design agent (`build_*_agent(target, settings, session_dir) -> *Agent` with `async turn(text, send) -> str`, tools returning `ToolResult`s, the model faked by monkeypatching `lovelaice.agent.agent._build_llm`), and the router is shaped like `server/design.py` (`agents_available()`, a lock per target, `session_dir()`, a queue drained into the event stream, `done` sent after the lock is free). Both slices add the same `agents` extra and CI matrix; whichever lands second finds them present (Task 6).
+- **Slice 6** (`docs/plans/2026-09-29-slice-6-design-mode.md`), in either order: the evaluate agent is built the way slice 6's Tasks 4 and 5 build the design agent (`build_*_agent(target, settings, session_dir) -> *Agent` with `async turn(text, send) -> str`, tools returning `ToolResult`s, the model faked by monkeypatching `lovelaice.agent.agent._build_llm`), and the router is shaped like `server/design.py` (a lock per target, `session_dir()`, a queue drained into the event stream, `done` sent after the lock is free). Both slices add the same `lovelaice` dependency; whichever lands second finds it present (Task 6).
 
 ## Global Constraints
 
@@ -27,7 +27,7 @@ Everything in the master plan's Global Constraints, plus:
 - A study is one scenario name and one version. Nothing groups runs of two versions, and a batch only adds runs of the scenario's current version.
 - The language model never computes a quantity, and in this slice it never states one unchecked: after every answer the server runs `unsupported_numbers` over the answer and every tool result of the session, and the `done` message carries the result. The browser only draws the marks; it never decides what is supported.
 - The evaluate agent runs no code. Its tools are exactly the nine in `evaluate.tools.TOOL_NAMES`; none takes a path.
-- Only `evaluate/tools.py` and `evaluate/agent.py` import lovelaice at module level. `studies.py`, `evaluate/queries.py`, `evaluate/checker.py`, `server/study.py` and `server/app.py` import on Python 3.12, and `test_queries_checker_and_the_server_import_without_lovelaice` holds it.
+- Only `evaluate/tools.py` and `evaluate/agent.py` import lovelaice at module level. `studies.py`, `evaluate/queries.py`, `evaluate/checker.py`, `server/study.py` and `server/app.py` do not, which keeps the engine core and the queries free of the agent's I/O; `test_queries_checker_and_the_server_import_without_lovelaice` holds it.
 - A study's chat lives under the user's data directory (`$XDG_DATA_HOME/casus/sessions/studies/<scenario>-<version>.jsonl`, default `~/.local/share`), never under `runs/`.
 - Exception text shown in the chat goes through `casus.settings.redact`.
 
@@ -39,7 +39,6 @@ Owned by this slice:
 - A figure that is only in the question, or that the model derived, is flagged: `tests/test_evaluate_checker.py::test_a_number_only_in_the_question_is_flagged` and `::test_a_derived_difference_is_flagged`.
 - A batch never exceeds its concurrency, and one failed run neither stops the batch nor vanishes: `tests/test_evaluate_batches.py::test_the_concurrency_limit_holds` and `::test_a_failing_run_is_recorded_and_the_batch_goes_on`.
 - Seed 1 of a new version never overwrites seed 1 of an old one: `tests/test_evaluate_batches.py::test_a_seed_already_on_disk_gets_its_own_file`.
-- The study screen works without the agents extra: `tests/test_server.py::test_without_the_agents_extra_the_chat_says_how_to_install_it` and its browser twin.
 
 ---
 
@@ -52,7 +51,7 @@ git fetch origin
 git worktree add .claude/worktrees/5-slice-7-evaluate-mode \
   -b 5-slice-7-evaluate-mode origin/main
 cd .claude/worktrees/5-slice-7-evaluate-mode
-uv sync --all-extras
+uv sync
 ```
 
 - [ ] **Step 2: Check that slices 3 and 5 are in**
@@ -426,8 +425,8 @@ Create `src/casus/evaluate/__init__.py`:
 ```python
 """Evaluate mode: fixed queries over a study, and the check on an answer's figures.
 
-`queries` and `checker` import nothing from lovelaice; `tools` and `agent` need
-the `agents` extra."""
+`queries` and `checker` import nothing from lovelaice; only `tools` and `agent`
+wrap them for the model."""
 ```
 
 Create `src/casus/evaluate/checker.py`:
@@ -440,7 +439,7 @@ the text the tools returned during the session. A stated figure is supported
 when some returned number, rounded to the precision the answer used, equals
 it: "22" is supported by 22.0075, "22,1" by 22.13, "22.13" is not supported by
 22.1. Nothing here imports lovelaice: the check is plain text against plain
-text, and it runs without the agents extra.
+text, and it knows nothing of the agent that produced the answer.
 
 What counts as a figure, decided here and pinned by tests:
 
@@ -784,8 +783,8 @@ def test_the_rendered_series_carries_every_value_the_model_may_cite(study):
 
 
 def test_queries_checker_and_the_server_import_without_lovelaice():
-    """The agents extra is optional: without it the study, its chart and its
-    batches work, and only the chat says how to install it."""
+    """Only the agent modules import lovelaice: the queries, the check and the
+    server stay plain code the study screen, its chart and its batches use."""
     code = (
         "import sys; sys.modules['lovelaice'] = None\n"
         "import casus.evaluate.queries, casus.evaluate.checker\n"
@@ -818,7 +817,7 @@ the queries, and the fix is a new query with a test.
 
 Values come from `state` records (the world at the start of each turn, and
 after the last one) and `mutation` records (the ledger). No lovelaice import
-here: the study screen and its chart work without the agents extra.
+here: the study screen and its chart read these without the agent.
 """
 
 from __future__ import annotations
@@ -1648,8 +1647,8 @@ Create `src/casus/server/study.py`:
 ```python
 """The study endpoints: studies by version, their series, batches, and the
 evaluate agent's chat. Built like the design router (`server/design.py`): the
-agent module is imported inside the chat endpoint only, so this file and the
-study screen work on Python 3.12 without the agents extra."""
+agent module is imported inside the chat endpoint only, so this file stays
+free of lovelaice and the study screen never loads the agent."""
 
 from __future__ import annotations
 
@@ -1817,10 +1816,10 @@ git commit -m "feat(server): studies by version, their series, and batches"
 
 ---
 
-### Task 6: The `agents` extra, the nine tools and the evaluate agent
+### Task 6: The lovelaice dependency, the nine tools and the evaluate agent
 
 **Files:**
-- Modify (unless slice 6 already did): `pyproject.toml`, `uv.lock`, `.github/workflows/tests.yml`
+- Modify (unless slice 6 already did): `pyproject.toml`, `uv.lock`
 - Modify (if slice 6 added it): `tests/test_purity.py`
 - Create: `src/casus/evaluate/tools.py`, `src/casus/evaluate/agent.py`
 - Modify: `tests/evaluate_support.py`
@@ -1832,47 +1831,18 @@ git commit -m "feat(server): studies by version, their series, and batches"
 
 This mirrors slice 6's Tasks 4 and 5. Tools return `ToolResult`s; a refusal has `is_error` and its text opens with `REFUSED`, because a saved chat keeps a tool's text but not its error flag. `turn` sends `delta`, `tool_start` and `tool_end`; the caller sends `done` with `unsupported()`. `exchanges` rebuilds question, tool calls, answer and the answer's unsupported figures from a session, checking each answer only against tool results that existed when it ended, so a reopened study shows the same marks the live answer had. The model is faked as slice 6 fakes it: `lovelaice.agent.agent._build_llm` is monkeypatched to return `Analyst`, a stand-in shaped like slice 6's `ScriptedLLM` (`model`, `_on_token`, `calls`, `async chat(messages, tools=None)`), which picks each call's arguments from the previous tool results.
 
-- [ ] **Step 1: The extra, the CI matrix and the purity test**
+- [ ] **Step 1: The dependency and the purity test**
 
-If `pyproject.toml` has no `agents` extra (slice 6 adds the same line), add:
+If `pyproject.toml`'s `[project] dependencies` has no lovelaice entry (slice 6 adds the same line), add:
 
 ```toml
-[project.optional-dependencies]
-agents = ["lovelaice>=2.13.1; python_version >= '3.13'"]
+    "lovelaice>=2.13.1",
 ```
 
-Run: `uv lock && uv sync --all-extras && uv run python -c "import lovelaice; print(lovelaice.__file__)"`
+Run: `uv lock && uv sync && uv run python -c "import lovelaice; print(lovelaice.__file__)"`
 Expected: a path inside `.venv`.
 
-Read `.github/workflows/tests.yml`. If slice 6 has not made the `test` job a matrix, make it one, as slice 6's Task 4 Step 6 does:
-
-```yaml
-name: tests
-on:
-  push:
-    branches: [main]
-  pull_request:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python }}
-      - run: uv sync --locked --all-extras
-      - if: matrix.python == '3.13'
-        run: uv run python -c "import lovelaice, casus.evaluate.agent"
-      - run: uv run playwright install --with-deps chromium
-      - run: make test
-```
-
-plus any step a later slice added. If the 3.13 step is already there, add `casus.evaluate.agent` to its import list (`import lovelaice, casus.design.agent, casus.evaluate.agent`), so the evaluate tests cannot skip silently either.
+CI needs nothing new: its one job runs `uv sync --locked`, which installs lovelaice with everything else, so the agent tests below run there and cannot skip.
 
 If `tests/test_purity.py` has slice 6's `test_only_the_design_agent_imports_lovelaice`, rename it `test_only_the_agents_import_lovelaice`, make its allowed set
 
@@ -1965,12 +1935,9 @@ import asyncio
 import re
 
 import pytest
+from evaluate_support import record_study
 
-pytest.importorskip("lovelaice")
-
-from evaluate_support import record_study  # noqa: E402
-
-from casus.evaluate.tools import TOOL_NAMES, build_tools  # noqa: E402
+from casus.evaluate.tools import TOOL_NAMES, build_tools
 
 
 @pytest.fixture(scope="module")
@@ -2025,20 +1992,16 @@ on the answer's figures. No network."""
 import asyncio
 import re
 
-import pytest
+from evaluate_support import QUESTION, Analyst, record_study
 
-pytest.importorskip("lovelaice")
-
-from evaluate_support import QUESTION, Analyst, record_study  # noqa: E402
-
-from casus.evaluate.agent import (  # noqa: E402
+from casus.evaluate.agent import (
     SYSTEM_PROMPT,
     build_evaluate_agent,
     history,
     session_path,
 )
-from casus.evaluate.tools import TOOL_NAMES  # noqa: E402
-from casus.settings import Settings  # noqa: E402
+from casus.evaluate.tools import TOOL_NAMES
+from casus.settings import Settings
 
 
 def _agent(tmp_path, llm, monkeypatch):
@@ -2129,7 +2092,7 @@ def test_the_chat_persists_per_study_and_is_checked_again_when_read(tmp_path, mo
 - [ ] **Step 4: Run to verify failure**
 
 Run: `uv run pytest tests/test_evaluate_tools.py tests/test_evaluate_agent.py -q`
-Expected: FAIL with `ModuleNotFoundError: No module named 'casus.evaluate.tools'` (on 3.12 both files skip: lovelaice is not installed).
+Expected: FAIL with `ModuleNotFoundError: No module named 'casus.evaluate.tools'`.
 
 - [ ] **Step 5: Implement**
 
@@ -2138,7 +2101,7 @@ Create `src/casus/evaluate/tools.py`:
 ```python
 """The evaluate agent's nine tools: the fixed queries, as text, and `show`.
 
-Needs the `agents` extra. Every tool is a thin call into `queries`, bound to one
+Every tool is a thin call into `queries`, bound to one
 study when the tools are built. A name the study does not have comes back as a
 refusal that lists what it does have, so the model can correct itself; the
 workshop and the study draw a refusal red.
@@ -2482,9 +2445,9 @@ git commit -m "feat(evaluate): the evaluate agent, its nine tools and the figure
 
 **Interfaces:**
 - Consumes: `build_evaluate_agent`, `history` (Task 6, imported inside the endpoints only); `sse.event_stream` (slice 3); `casus.settings.redact` (slice 5).
-- Produces: `agents_available()`, `lock_for(scenario, version) -> asyncio.Lock`, `session_dir()` in `casus.server.study`, and:
-  - `GET /api/studies/{scenario}/{version}/chat` → `{agents, busy, note, exchanges}`: `note` is the install line when the extra is missing; `exchanges` is the saved chat, each answer with its `unsupported` figures.
-  - `POST /api/studies/{scenario}/{version}/chat` with `{text}` → `text/event-stream` of the master plan's agent messages, ending with `{"type": "done", "unsupported": [...]}` and slice 3's close event; `409` while the agent answers another question on the study; `501` without the extra.
+- Produces: `lock_for(scenario, version) -> asyncio.Lock`, `session_dir()` in `casus.server.study`, and:
+  - `GET /api/studies/{scenario}/{version}/chat` → `{busy, exchanges}`: `exchanges` is the saved chat, each answer with its `unsupported` figures.
+  - `POST /api/studies/{scenario}/{version}/chat` with `{text}` → `text/event-stream` of the master plan's agent messages, ending with `{"type": "done", "unsupported": [...]}` and slice 3's close event; `409` while the agent answers another question on the study.
 
 As in slice 6, an error inside a turn arrives as a `delta` before `done`, its text through `redact`, and `done` goes out after the lock is released, so a browser that asks again the moment it sees `done` is not refused. `session_dir()` is the design router's directory; a study's chat sits under `studies/` in it.
 
@@ -2499,21 +2462,9 @@ def _events(body: str) -> list[dict]:
     return [m for m in found if "type" in m]
 
 
-def test_without_the_agents_extra_the_chat_says_how_to_install_it(
-    study_client, study_runs, monkeypatch
-):
-    monkeypatch.setattr("casus.server.study.agents_available", lambda: False)
-    url = f"/api/studies/smoke/{_study(study_runs).version}/chat"
-    state = study_client.get(url).json()
-    assert state["agents"] is False and "--extra agents" in state["note"]
-    response = study_client.post(url, json={"text": "why?"})
-    assert response.status_code == 501 and "--extra agents" in response.json()["detail"]
-
-
 def test_the_chat_streams_agent_events_and_ends_with_the_check(
     study_client, study_runs, monkeypatch
 ):
-    pytest.importorskip("lovelaice")
     monkeypatch.setattr("lovelaice.agent.agent._build_llm", lambda cfg: Analyst(invent=True))
     url = f"/api/studies/smoke/{_study(study_runs).version}/chat"
     body = study_client.post(url, json={"text": QUESTION}).text
@@ -2526,8 +2477,6 @@ def test_the_chat_streams_agent_events_and_ends_with_the_check(
 
 
 def test_an_agent_that_fails_says_why_through_redact(study_client, study_runs, monkeypatch):
-    pytest.importorskip("lovelaice")
-
     class Refusing(Analyst):
         async def chat(self, messages, tools=None, **kwargs):
             raise RuntimeError("401 for key sk-secret")
@@ -2546,17 +2495,14 @@ def test_an_agent_that_fails_says_why_through_redact(study_client, study_runs, m
 - [ ] **Step 2: Run to verify failure**
 
 Run: `uv run pytest tests/test_server.py -q -k "chat or agent"`
-Expected: FAIL: the chat routes are 404s and `casus.server.study` has no `agents_available`.
+Expected: FAIL: the chat routes are 404s.
 
 - [ ] **Step 3: Implement**
 
-In `src/casus/server/study.py`, add `import importlib.util`, `import os`, `from fastapi.responses import StreamingResponse` and `from . import sse` to the imports. Add after `class BatchIn`:
+In `src/casus/server/study.py`, add `from fastapi.responses import StreamingResponse` and `from . import sse` to the imports. Add after `class BatchIn`:
 
 ```python
 BUSY = "the evaluate agent is answering a question about this study"
-NO_AGENTS = (
-    "the evaluate agent needs the agents extra, on Python 3.13 or later: uv sync --extra agents"
-)
 
 _LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 _TASKS: set[asyncio.Task] = set()
@@ -2564,10 +2510,6 @@ _TASKS: set[asyncio.Task] = set()
 
 class TextIn(BaseModel):
     text: str = Field(min_length=1)
-
-
-def agents_available() -> bool:
-    return importlib.util.find_spec("lovelaice") is not None
 
 
 def lock_for(scenario: str, version: str) -> asyncio.Lock:
@@ -2587,25 +2529,17 @@ and inside `router`, just before `return api`:
 ```python
     @api.get("/{scenario}/{version}/chat")
     def chat_state(scenario: str, version: str) -> dict:
-        study = find(scenario, version)
-        available = agents_available()
-        exchanges: list[dict] = []
-        if available:
-            from ..evaluate.agent import history
+        from ..evaluate.agent import history
 
-            exchanges = history(study, session_dir())
+        study = find(scenario, version)
         return {
-            "agents": available,
             "busy": lock_for(scenario, version).locked(),
-            "note": None if available else NO_AGENTS,
-            "exchanges": exchanges,
+            "exchanges": history(study, session_dir()),
         }
 
     @api.post("/{scenario}/{version}/chat")
     async def chat(scenario: str, version: str, body: TextIn) -> StreamingResponse:
         study = find(scenario, version)
-        if not agents_available():
-            raise HTTPException(501, NO_AGENTS)
         held = lock_for(scenario, version)
         if held.locked():
             raise HTTPException(409, BUSY)
@@ -2646,7 +2580,7 @@ and inside `router`, just before `return api`:
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `uv run pytest tests/test_server.py -q`
-Expected: PASS (on 3.12 the two lovelaice tests skip).
+Expected: PASS.
 
 - [ ] **Step 5: Break it on purpose**
 
@@ -2672,7 +2606,7 @@ git commit -m "feat(server): the evaluate agent's chat, checked answer by answer
 - Consumes: `Casus.records.RunModel`, `.label`; `Casus.map.esc`; `Casus.card.fmt`; `Casus.i18n.t`, `.use`; `Casus.shell.route`, `.onHome`, `.json` (slice 1); every endpoint of Tasks 5 and 7, and `GET /api/runs/{id}` (slice 1).
 - Produces: the route `#/study/<scenario>/<version>`; `Casus.study = {mark, footer, holders}`; on the home, study cards with `data-study`, `data-version`, `data-current` and, in `[data-actions="study"]`, **Evaluate** and **Add runs**. `Casus.shell.route` handlers now receive every path segment after the name: `fn(view, arg, ...rest)`.
 
-The home's second shelf becomes studies: one card per study from `GET /api/studies`, in its order (by scenario, each scenario's versions newest first), labelled with the version and the date, and "older rules" when it is not the current version. **Add runs** is disabled on an older version, with the reason in its title. It opens an inline confirmation that fetches the plan and states `runs × turns × (actors + 1) = calls` before **Start**. The study screen fetches each run's viewer records once (a finished run never changes) for the run cards' counts and the chart's selectors, draws the chart from `/series`, and polls `/api/studies` every three seconds so batch runs appear as they land. The chat pane draws tool lines as they start and end, follows a successful `show` by switching the chart, and on `done` marks the answer's unsupported figures and adds the footer count. Without the extra, the pane shows the server's install line and disables the input; the runs and the chart still work.
+The home's second shelf becomes studies: one card per study from `GET /api/studies`, in its order (by scenario, each scenario's versions newest first), labelled with the version and the date, and "older rules" when it is not the current version. **Add runs** is disabled on an older version, with the reason in its title. It opens an inline confirmation that fetches the plan and states `runs × turns × (actors + 1) = calls` before **Start**. The study screen fetches each run's viewer records once (a finished run never changes) for the run cards' counts and the chart's selectors, draws the chart from `/series`, and polls `/api/studies` every three seconds so batch runs appear as they land. The chat pane draws tool lines as they start and end, follows a successful `show` by switching the chart, and on `done` marks the answer's unsupported figures and adds the footer count.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2757,7 +2691,6 @@ In `ui/js/i18n.js`, change `studies: "Runs"` to `studies: "Studies"` and `studie
       unsupported_one: "figure not found in any query",
       unsupported_many: "figures not found in any query",
       unsupported_title: "no query returned this figure",
-      install: "The evaluate agent is not installed.",
       agent_error: "The agent stopped:", no_values: "no values for this series",
       q_vary: "What changes between runs, and what stays the same?",
       q_chart: "Why does {q} of {h} end where it does?",
@@ -2782,7 +2715,6 @@ and to the `es` table:
       unsupported_one: "cifra que ninguna consulta devolvió",
       unsupported_many: "cifras que ninguna consulta devolvió",
       unsupported_title: "ninguna consulta devolvió esta cifra",
-      install: "El agente de evaluación no está instalado.",
       agent_error: "El agente se detuvo:", no_values: "esta serie no tiene valores",
       q_vary: "¿Qué cambia entre corridas y qué sale igual?",
       q_chart: "¿Por qué {q} de {h} termina donde termina?",
@@ -3139,13 +3071,8 @@ Slice 1's `dispatch` already passes every path segment after the route name, so 
       root.querySelector('[data-q="q_chart"]').textContent =
         t("q_chart").replace("{q}", q).replace("{h}", h);
     }
-    function unavailable(note) {
-      log.innerHTML = `<div class="install">${t("install")}<br><code>${esc(note)}</code></div>`;
-      for (const el of root.querySelectorAll(".ask button, .ask textarea")) el.disabled = true;
-    }
     async function conversation() {
       const state = await C.shell.json(base + "/chat");
-      if (!state.agents) { unavailable(state.note); return; }
       log.innerHTML = `<div class="msg bot">${esc(t("agent_intro"))}</div>`;
       for (const x of state.exchanges) {
         user(x.question);
@@ -3183,7 +3110,6 @@ Slice 1's `dispatch` already passes every path segment after the route name, so 
       try {
         const r = await fetch(base + "/chat",
           { ...JSON_POST, signal: S.abort.signal, body: JSON.stringify({ text }) });
-        if (r.status === 501) { unavailable((await r.json()).detail); return; }
         if (!r.ok) { bot(String((await r.json()).detail || r.status), []); return; }
         const reader = r.body.getReader(), dec = new TextDecoder();
         let buf = "";
@@ -3249,9 +3175,6 @@ Append to `ui/css/app.css`:
 mark.unsup{background:rgba(255,90,110,.16);color:var(--bad);border-bottom:1px dashed var(--bad);
   border-radius:3px;padding:0 2px}
 .foot{font-family:var(--mono);font-size:11.5px;color:var(--bad)}
-.install{border:1px dashed var(--faint);border-radius:9px;padding:12px 14px;font-size:13px;
-  line-height:1.5;color:var(--dim)}
-.install code{color:var(--ink)}
 .batch{display:flex;gap:8px;align-items:center;flex-wrap:wrap;width:100%}
 .batch input{width:64px;background:#0a1019;border:1px solid var(--line);color:var(--ink);
   border-radius:6px;padding:5px 8px}
@@ -3382,20 +3305,9 @@ def test_the_study_draws_one_line_per_run_and_follows_the_selectors(page, study_
     assert page.locator("#sq").input_value() == "infra"
 
 
-def test_without_the_agents_extra_the_chat_says_how_to_install_it(page, study_app, monkeypatch):
-    monkeypatch.setattr("casus.server.study.agents_available", lambda: False)
-    url, study = study_app
-    _open_study(page, url, study)
-    page.wait_for_selector(".install")
-    assert "--extra agents" in page.locator(".install").inner_text()
-    assert page.locator("#send").is_disabled()
-    assert page.locator("#chart polyline").count() == len(study.runs)
-
-
 def test_the_agent_marks_a_figure_no_query_returned_and_moves_the_chart(
     page, study_app, monkeypatch
 ):
-    pytest.importorskip("lovelaice")
     monkeypatch.setattr("lovelaice.agent.agent._build_llm", lambda cfg: Analyst(invent=True))
     url, study = study_app
     _open_study(page, url, study)
@@ -3415,7 +3327,7 @@ def test_the_agent_marks_a_figure_no_query_returned_and_moves_the_chart(
 - [ ] **Step 2: Run them**
 
 Run: `uv run pytest tests/browser/test_app.py -q -k "study or add_runs or agent"`
-Expected: PASS (5 tests; on 3.12 the agent test skips).
+Expected: PASS (4 tests).
 
 - [ ] **Step 3: Break it on purpose**
 
@@ -3437,13 +3349,7 @@ git commit -m "test(browser): the study, its batches and the evaluate agent in C
 
 - [ ] **Step 1: README**
 
-Under "Install and run", unless slice 6 already added it:
-
-```bash
-uv sync --extra agents                   # the design and evaluate agents (Python 3.13+)
-```
-
-Add rows to the module table: `evaluate/` ("A study's fixed queries, the check on an answer's figures, and the evaluate agent (agents extra)") and `server/study.py` ("Studies by version, batches, and the evaluate agent's chat").
+Add rows to the module table: `evaluate/` ("A study's fixed queries, the check on an answer's figures, and the evaluate agent") and `server/study.py` ("Studies by version, batches, and the evaluate agent's chat").
 
 - [ ] **Step 2: AGENTS.md**
 
@@ -3465,7 +3371,7 @@ In `docs/specs/2026-09-29-evaluate-mode-design.md` set `status: "implemented in 
 With a real key configured (slice 5's settings screen, or `CASUS_API_KEY_FILE`):
 
 ```bash
-uv sync --all-extras
+uv sync
 uv run casus run scenarios/smoke --turns 3 --seed 1    # if no smoke study exists yet
 uv run casus serve
 ```
@@ -3478,7 +3384,6 @@ In the browser:
 4. The answer must come after tool lines that include `ledger` and `read_rules`; the chart must switch to the series the agent talks about; every figure in the answer is either unmarked or marked with the footer count. For each marked figure, say in the PR body whether it was rounding, a difference the model computed, or an invention.
 5. Ask "What changes between runs, and what stays the same?": the answer names the number of runs it rests on.
 6. Reload the page: the conversation, its tool lines and its marks are back.
-7. `env -u API_KEY uv run --no-sync python -c "import sys; sys.modules['lovelaice'] = None; import casus.server.app"` exits 0: the server still imports without the extra.
 
 Note in the PR body which model answered, the concurrency used, and the counts of marked figures.
 
@@ -3509,7 +3414,7 @@ The master plan must change in the same PR as this slice, as follows.
    - `src/casus/server/study.py` (the study router), beside slice 6's `server/design.py`. The table says slice 7 "adds routers" to `app.py`; the router lives in its own module and `app.py` only includes it.
    - `tests/evaluate_support.py`, `tests/test_evaluate_{checker,queries,batches,tools,agent}.py`.
 2. **File structure, slice 7 modifies files the table assigns to others.**
-   - `ui/js/i18n.js` (study strings; the `studies` label becomes "Studies"/"Estudios"), `ui/css/app.css` (study rules, and `#appshell`'s height), `tests/js/harness.js` (one `mark` line), `tests/test_ui_scripts.py`, `tests/test_purity.py` (when slice 6's purity test exists), `pyproject.toml`, `uv.lock` and `.github/workflows/tests.yml` (only if slice 6 has not landed).
+   - `ui/js/i18n.js` (study strings; the `studies` label becomes "Studies"/"Estudios"), `ui/css/app.css` (study rules, and `#appshell`'s height), `tests/js/harness.js` (one `mark` line), `tests/test_ui_scripts.py`, `tests/test_purity.py` (when slice 6's purity test exists), `pyproject.toml` and `uv.lock` (only if slice 6 has not landed).
 3. **Python interfaces, additions.**
    - `studies.Study.to_json()`.
    - `evaluate/queries.py`: `runs(study)`, `read_scenario(study)`, `read_rules(study)`, `render(result) -> str`, `fmt(value) -> str`, `QueryError`. `ledger`'s `run` accepts a run id or a seed.
@@ -3517,20 +3422,20 @@ The master plan must change in the same PR as this slice, as follows.
    - `server/runs.py`: `batch_plan(scenario, *, n, turns, first_seed) -> dict` with `runs, turns, actors, first_seed, last_seed, calls`. `start_batch` reserves every id through slice 3's `_reserve`, so batch ids are `<name>-<seed>` (with `-2`, `-3`… when taken), the same scheme as a single run.
    - `evaluate/tools.py`: `TOOL_NAMES`, `REFUSED`, `build_tools(study) -> list[AgentTool]`.
    - `evaluate/agent.py`: `build_evaluate_agent(study, settings, session_dir) -> EvaluateAgent` with `async turn(text, send) -> str` and `unsupported() -> list[str]`, mirroring slice 6's `build_design_agent`; `exchanges(messages)`, `history(study, session_dir)`, `session_path(study, session_dir)`. The table names `build_evaluate_agent()` with no signature.
-   - `server/study.py`: `router(*, runs_dir, dirs, manager, settings=None)`, `agents_available()`, `lock_for(scenario, version)`, `session_dir()`.
+   - `server/study.py`: `router(*, runs_dir, dirs, manager, settings=None)`, `lock_for(scenario, version)`, `session_dir()`.
 4. **HTTP.**
    - `GET /studies` items gain `current` (the version is the scenario directory's version now) and `date`.
    - `{scenario}` in every `/studies/...` path is the scenario's name as its transcripts carry it, not a directory name.
    - New: `GET /studies/{scenario}/plan?n=&turns=`, the pre-flight call count the spec requires before a batch starts.
-   - New: `GET /studies/{scenario}/{version}/chat` → `{agents, busy, note, exchanges}`, which restores a study's saved chat with its marks and tells the screen, before anyone types, whether the extra is installed.
+   - New: `GET /studies/{scenario}/{version}/chat` → `{busy, exchanges}`, which restores a study's saved chat with its marks and tells the screen, before anyone types, whether the agent is busy.
    - `POST /studies/{scenario}/runs`: `n` is 1 to 100 (default 10), `turns` optional; 404 when no directory has that scenario name, 422 when it does not validate.
-   - `POST /studies/{scenario}/{version}/chat`: 409 while the agent answers on the same study, 501 without the extra. As in slice 6, an error inside a turn arrives as a `delta` before `done`.
+   - `POST /studies/{scenario}/{version}/chat`: 409 while the agent answers on the same study. As in slice 6, an error inside a turn arrives as a `delta` before `done`.
 5. **JavaScript.**
    - `Casus.shell.route` handlers receive every remaining path segment: `fn(view, arg, ...rest)`. `#/study/<scenario>/<version>` has two; slice 1's dispatcher passes them all.
    - Home study cards carry `data-study` (the scenario name), `data-version` and `data-current`.
    - `Casus.study = {mark, footer, holders}`.
 6. **One chat directory.** Slice 6's `server/design.py` and this slice's `server/study.py` each define the same `session_dir()` (`$XDG_DATA_HOME/casus/sessions`), because neither slice may depend on the other. The master plan should name one home for it (for example `settings.data_dir()`), and the later of the two slices should import it.
-7. **The purity test covers both agents.** Whichever of slices 6 and 7 lands second makes `tests/test_purity.py`'s lovelaice test allow `design/{tools,agent}.py` and `evaluate/{tools,agent}.py` and nothing else, and the 3.13 CI step import both agent modules.
+7. **The purity test covers both agents.** Whichever of slices 6 and 7 lands second makes `tests/test_purity.py`'s lovelaice test allow `design/{tools,agent}.py` and `evaluate/{tools,agent}.py` and nothing else.
 8. **A shared scripted model.** `tests/evaluate_support.Analyst` is shaped like slice 6's `tests/design_support.ScriptedLLM`. Once both are in, the master plan should move the fake model to one `tests/agent_support.py`.
 
 ### A note for slice 1 (not a contract change)

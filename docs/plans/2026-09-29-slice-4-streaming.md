@@ -6,7 +6,7 @@
 
 **Architecture:** Part A changes lingo. `LLM.create` gains `on_token`: with it, the structured request goes through the OpenAI SDK's `client.chat.completions.stream(...)` with the same `response_format`, each `content.delta` fragment goes to the callback, and `get_final_completion()` supplies the parsed model. The length-retry loop stays, and a new `on_retry(attempt)` callback tells the caller to discard the fragments it has. lingo releases this as 2.2.0. Part B is in casus. `RationaleReader` follows the growing JSON and returns only the characters of the top-level `rationale` string. `Player.decide` feeds it when given `on_rationale`, and `engine.run_async` turns those characters into `delta` messages for the observer, never for the transcript. `records.js` keeps the deltas and `viewer.js` shows them until the declaration arrives.
 
-**Tech Stack:** lingo (Python 3.12+, openai SDK, pytest-asyncio, ruff format at its default 88 columns), casus (Python 3.12+, pytest, plain JS, Playwright).
+**Tech Stack:** lingo (Python 3.12+, openai SDK, pytest-asyncio, ruff format at its default 88 columns), casus (Python 3.13+, pytest, plain JS, Playwright).
 
 **Specs:** `docs/specs/2026-09-28-interface-design.md`, sections "Declarations stay sealed until all are in", "Streaming a declaration", "Pacing" and "Testing". Master plan: `docs/plans/2026-09-29-casus-app-plan.md` (the contracts section is binding; this slice needs the changes listed at the end).
 
@@ -789,7 +789,7 @@ Work in `.claude/worktrees/5-slice-4-streaming` on branch `5-slice-4-streaming`,
 git -C /home/apiad/Workspace/repos/casus fetch origin
 git -C /home/apiad/Workspace/repos/casus worktree add .claude/worktrees/5-slice-4-streaming \
   -b 5-slice-4-streaming origin/main
-cd /home/apiad/Workspace/repos/casus/.claude/worktrees/5-slice-4-streaming && uv sync --all-extras
+cd /home/apiad/Workspace/repos/casus/.claude/worktrees/5-slice-4-streaming && uv sync
 ```
 
 Tasks B1–B6 run on fake engines and do not wait for the lingo release. B7 does.
@@ -2041,7 +2041,7 @@ Expected: FAIL. With lingo 2.1.0, `_streams` is false, so the player calls `pars
 
 ```bash
 uv add "lingo-ai>=2.2.0"
-uv sync --all-extras
+uv sync
 uv run python -c "import inspect, lingo; print(lingo.__version__, inspect.signature(lingo.Engine.create))"
 ```
 

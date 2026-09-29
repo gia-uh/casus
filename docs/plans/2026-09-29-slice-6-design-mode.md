@@ -6,7 +6,7 @@
 
 **Architecture:** The validator gains the source rule: every actor, place and entity names a slug with a file in `sources/`. `design/workspace.py` owns the one write path: a whole file into `.draft/`, the full validator on the draft, promotion to the runnable files on a pass. `design/sources.py` archives pages (Firecrawl) and assumptions and runs the two searches. `design/tools.py` and `design/agent.py` wrap those in twelve lovelaice tools and an agent with a failure cap; they are the only modules that import lovelaice. `server/design.py` serves the draft, the form and the chat; `ui/js/workshop.js` is the screen.
 
-**Tech Stack:** Python 3.12 (3.13 for the `agents` extra), FastAPI, httpx, PyYAML, lovelaice 2.13.1 on lingo-ai 2.1, plain JS, pytest, Playwright.
+**Tech Stack:** Python 3.13, FastAPI, httpx, PyYAML, lovelaice 2.13.1 on lingo-ai 2.1 (a normal dependency), plain JS, pytest, Playwright.
 
 **Specs:** `docs/specs/2026-09-29-design-mode-design.md` (all of it), `docs/specs/2026-09-28-interface-design.md` ("The workshop (design mode)"), `docs/specs/2026-09-29-map-regions-design.md` (what a region block is and what `regions.json` holds). Master plan: `docs/plans/2026-09-29-casus-app-plan.md`; its contracts are binding. Slice 1's plan is the format and the source of `create_app`, `shell.js`, `app.css` and the browser fixtures.
 
@@ -22,7 +22,7 @@ Everything in the master plan's Global Constraints, plus:
 - A failing write never changes a runnable file. The runnable files are `scenario.yaml`, `rules.py` and `regions.json` directly in the scenario directory.
 - No tool takes a path. The scenario directory is bound when the tools are built. A slug or a new scenario's name must match `[a-z0-9][a-z0-9-]{1,63}` (full match), which admits no `/`, no `.` and no `\`.
 - A finding, a tool result or an agent event never contains an absolute filesystem path. Findings are relativized before they leave the workspace.
-- Only `src/casus/design/tools.py` and `src/casus/design/agent.py` import lovelaice at module level. Everything else in `design/`, the source rule, the form endpoint and the server import on Python 3.12, and `test_only_the_design_agent_imports_lovelaice` holds it.
+- Only `src/casus/design/tools.py` and `src/casus/design/agent.py` import lovelaice at module level. Everything else in `design/`, the source rule, the form endpoint and the server stay free of it, so the engine core keeps no I/O and no agent machinery, and `test_only_the_design_agent_imports_lovelaice` holds it.
 - The design agent writes a scenario's starting figures as text, the way a person does, and each needs a source or a stated assumption. Nothing it outputs reaches a running world except through a validated `scenario.yaml`. It never computes a quantity for a run.
 - A chat lives under the user's data directory (`$XDG_DATA_HOME/casus/sessions/<scenario>.jsonl`, default `~/.local/share`), never inside the scenario.
 
@@ -1016,8 +1016,8 @@ Create `src/casus/design/__init__.py`:
 
 ```python
 """Design mode: the working copy a scenario is edited in, its sources, the form,
-and the design agent. Only `tools.py` and `agent.py` need lovelaice (the
-`agents` extra); everything else here imports on Python 3.12."""
+and the design agent. Only `tools.py` and `agent.py` import lovelaice; everything
+else here stays free of the agent machinery."""
 ```
 
 Create `src/casus/design/sources.py`:
@@ -2151,10 +2151,10 @@ git commit -m "feat(design): the workspace, a draft that promotes only when it v
 
 ---
 
-### Task 4: The `agents` extra and the twelve tools
+### Task 4: lovelaice and the twelve tools
 
 **Files:**
-- Modify: `pyproject.toml`, `uv.lock`, `.github/workflows/tests.yml`
+- Modify: `pyproject.toml`, `uv.lock`
 - Create: `src/casus/design/tools.py`
 - Test: `tests/test_design_tools.py`, `tests/test_purity.py`
 
@@ -2164,16 +2164,15 @@ git commit -m "feat(design): the workspace, a draft that promotes only when it v
 
 Tool results are `ToolResult`s with `is_error` set on every refusal, so the workshop marks them red. A write's `ToolResult.raw_output` is its `WriteResult`, which is how the diff reaches the workshop without being sent to the model. Tools that change state are `sequential=True`, so a batch holding one runs in order.
 
-- [ ] **Step 1: Add the extra**
+- [ ] **Step 1: Add lovelaice**
 
-In `pyproject.toml` add (if slice 7 has not already added the same line):
+In `pyproject.toml` add this entry to `[project] dependencies` (if slice 7 has not already added the same line):
 
 ```toml
-[project.optional-dependencies]
-agents = ["lovelaice>=2.13.1; python_version >= '3.13'"]
+"lovelaice>=2.13.1",
 ```
 
-Run: `uv lock && uv sync --all-extras && uv run python -c "import lovelaice; print(lovelaice.__file__)"`
+Run: `uv lock && uv sync && uv run python -c "import lovelaice; print(lovelaice.__file__)"`
 Expected: a path inside `.venv`. (Checked on 2026-09-29: this resolves to lovelaice 2.13.1, lingo-ai 2.1.0, beaver-db 2.4.1 with fastapi and shapely alongside.)
 
 - [ ] **Step 2: Write the failing tests**
@@ -2186,13 +2185,9 @@ Create `tests/test_design_tools.py`:
 import asyncio
 
 import httpx
-import pytest
+from design_support import DDG_PAGE, copy_scenario, make_settings, running
 
-pytest.importorskip("lovelaice")
-
-from design_support import DDG_PAGE, copy_scenario, make_settings, running  # noqa: E402
-
-from casus.design.tools import TOOL_NAMES, FailureCap, build_tools  # noqa: E402
+from casus.design.tools import TOOL_NAMES, FailureCap, build_tools
 
 REASON = "Mexico's standing is placed by judgement between the two sides."
 
@@ -2392,8 +2387,8 @@ def _top_level_imports(path: pathlib.Path):
 
 
 def test_only_the_design_agent_imports_lovelaice():
-    """The workspace, the sources, the form and the server must import on
-    Python 3.12, where the agents extra cannot be installed."""
+    """The workspace, the sources, the form and the server stay free of
+    lovelaice, so the agent machinery lives in two modules only."""
     allowed = {"design/tools.py", "design/agent.py"}
     for path in sorted(SRC.rglob("*.py")):
         relative = str(path.relative_to(SRC))
@@ -2699,46 +2694,12 @@ The tool docstrings run past 96 columns on their first line on purpose: lovelaic
 Run: `uv run pytest tests/test_design_tools.py tests/test_purity.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Run the agents extra in CI**
-
-The extra needs Python 3.13, and CI today runs whatever interpreter `uv` finds first (3.12 on `ubuntu-latest`), so every lovelaice test would skip there and the gate could not fail. Read `.github/workflows/tests.yml` first (slice 1 and later slices have added steps), then make the `test` job a matrix over both interpreters, sync with `--all-extras` (a no-op for lovelaice on 3.12, because of its marker) and prove on 3.13 that the agent imports. After this step the job reads as below, plus any step a later slice added:
-
-```yaml
-name: tests
-on:
-  push:
-    branches: [main]
-  pull_request:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python }}
-      - run: uv sync --locked --all-extras
-      - if: matrix.python == '3.13'
-        run: uv run python -c "import lovelaice, casus.design.agent"
-      - run: uv run playwright install --with-deps chromium
-      - run: make test
-```
-
-`casus.design.agent` does not exist until Task 5, so push this change together with Task 5's commit, or run Task 5 before pushing.
-
-Break it on purpose, locally: `uv sync --locked` (no extras), then `uv run python -c "import lovelaice"`. Expected: `ModuleNotFoundError`, exit code 1. That is what the 3.13 step reports if the extra ever stops installing. Restore with `uv sync --all-extras`.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add pyproject.toml uv.lock src/casus/design/tools.py tests/test_design_tools.py \
-  tests/test_purity.py .github/workflows/tests.yml
-git commit -m "feat(design): the agents extra and the design agent's twelve tools"
+  tests/test_purity.py
+git commit -m "feat(design): lovelaice and the design agent's twelve tools"
 ```
 
 ---
@@ -2768,11 +2729,7 @@ session per failure mode the design spec names."""
 import asyncio
 
 import httpx
-import pytest
-
-pytest.importorskip("lovelaice")
-
-from design_support import (  # noqa: E402
+from design_support import (
     ScriptedLLM,
     call,
     copy_scenario,
@@ -2782,8 +2739,8 @@ from design_support import (  # noqa: E402
     tree,
 )
 
-from casus.design.agent import SYSTEM_PROMPT, build_design_agent  # noqa: E402
-from casus.design.tools import TOOL_NAMES  # noqa: E402
+from casus.design.agent import SYSTEM_PROMPT, build_design_agent
+from casus.design.tools import TOOL_NAMES
 
 MX = """  MX:
     name: Mexico
@@ -3182,14 +3139,14 @@ git commit -m "feat(design): the design agent, its instructions and its failure 
 **Interfaces:**
 - Consumes: `Workspace`, `FILES` (Task 3); `SourceStore` (Task 2); `build_design_agent` (Task 5, imported inside the chat endpoint only); `scenario_dirs` (slice 1, `server/app.py`).
 - Produces, in `casus.design.form`: `FormError`, `apply(text, edits) -> str`, `view(data)`.
-- Produces, in `casus.server.design`: `agents_available()`, `lock_for(directory) -> asyncio.Lock`, `session_dir()`, `router(*, scenarios_dir, dirs, settings=None) -> APIRouter`.
+- Produces, in `casus.server.design`: `lock_for(directory) -> asyncio.Lock`, `session_dir()`, `router(*, scenarios_dir, dirs, settings=None) -> APIRouter`.
 - Produces, over HTTP under `/api/design`:
-  - `GET /{scenario}` → `{scenario, exists, agents, busy}` and, when it exists, `status`, `data` (the parsed draft), `initial` (the draft's initial state or null), `regions` (the draft's `regions.json` or null), `sources` (each source's summary).
+  - `GET /{scenario}` → `{scenario, exists, busy}` and, when it exists, `status`, `data` (the parsed draft), `initial` (the draft's initial state or null), `regions` (the draft's `regions.json` or null), `sources` (each source's summary).
   - `GET /{scenario}/files/{name}` → `{name, text, origin, editable}`.
   - `PUT /{scenario}/files/{name}` with `{text}` → `WriteResult` as JSON. A failing write is `200` with `ok: false`; `409` while the agent works on this scenario.
   - `POST /{scenario}/form` with `{edits: [{path, value}]}` → `{text}`: the draft's scenario.yaml with the edits applied. Nothing is written; the form then PUTs that text.
   - `GET /{scenario}/sources/{slug}` → the source's summary and `body`.
-  - `POST /{scenario}/chat` with `{text}` → `text/event-stream` of the agent's messages, ending with `{"type": "done"}`; `409` while busy; `501` without the agents extra.
+  - `POST /{scenario}/chat` with `{text}` → `text/event-stream` of the agent's messages, ending with `{"type": "done"}`; `409` while busy.
 
 The form is a structured view of the parsed YAML. Rather than serialise YAML in the browser, which cannot tell `10` from `"10"` once it has been through JSON, the form sends leaf edits, and the server applies them and dumps the whole file with PyYAML. So a form save rewrites scenario.yaml in block style and drops its comments; the scenario.yaml tab edits the text itself and keeps them. Either way the save is a PUT of whole-file text into `Workspace.write`.
 
@@ -3378,17 +3335,8 @@ def test_a_save_while_the_agent_works_is_refused(design):
     assert _put(client, (directory / "scenario.yaml").read_text()).status_code == 200
 
 
-def test_without_the_agents_extra_the_chat_says_how_to_install_it(design, monkeypatch):
-    client, _ = design
-    monkeypatch.setattr("casus.server.design.agents_available", lambda: False)
-    response = client.post("/api/design/smoke/chat", json={"text": "hi"})
-    assert response.status_code == 501 and "uv sync --extra agents" in response.json()["detail"]
-    assert client.get("/api/design/smoke").json()["agents"] is False
-
-
 @pytest.mark.parametrize("change", [("stamina: 80", "stamina: 70"), ("actors:", "actors: [")])
 def test_the_form_and_the_agent_write_identical_drafts_from_identical_text(tmp_path, change):
-    pytest.importorskip("lovelaice")
     from casus.design.tools import build_tools
 
     form_dir = copy_scenario(tmp_path / "form")
@@ -3406,7 +3354,6 @@ def test_the_form_and_the_agent_write_identical_drafts_from_identical_text(tmp_p
 
 
 def test_the_chat_streams_the_agents_events_and_frees_the_lock(design, monkeypatch):
-    pytest.importorskip("lovelaice")
     from design_support import ScriptedLLM, call, say
 
     llm = ScriptedLLM(call("read_scenario"), say("Two actors."))
@@ -3424,7 +3371,6 @@ def test_the_chat_streams_the_agents_events_and_frees_the_lock(design, monkeypat
 
 
 def test_a_chat_while_the_agent_works_is_refused(design):
-    pytest.importorskip("lovelaice")
     client, directory = design
     lock = design_api.lock_for(directory)
     asyncio.run(lock.acquire())
@@ -3539,7 +3485,6 @@ a person does not meet.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
 import os
 import pathlib
@@ -3556,10 +3501,6 @@ from ..design.workspace import FILES, Workspace
 from ..validate.sources import valid_slug
 
 BUSY = "the design agent is working on this scenario; save when its turn ends"
-NO_AGENTS = (
-    "the design agent needs the agents extra, on Python 3.13 or later: "
-    "uv sync --extra agents"
-)
 
 _LOCKS: dict[pathlib.Path, asyncio.Lock] = {}
 _TASKS: set[asyncio.Task] = set()
@@ -3571,10 +3512,6 @@ class TextIn(BaseModel):
 
 class EditsIn(BaseModel):
     edits: list[dict[str, Any]]
-
-
-def agents_available() -> bool:
-    return importlib.util.find_spec("lovelaice") is not None
 
 
 def lock_for(directory: pathlib.Path) -> asyncio.Lock:
@@ -3629,7 +3566,7 @@ def router(
         workspace = Workspace(directory)
         out: dict[str, Any] = {
             "scenario": scenario, "exists": workspace.exists(),
-            "agents": agents_available(), "busy": lock_for(directory).locked(),
+            "busy": lock_for(directory).locked(),
         }  # fmt: skip
         if not out["exists"]:
             return out
@@ -3683,8 +3620,6 @@ def router(
     @api.post("/{scenario}/chat")
     async def chat(scenario: str, body: TextIn) -> StreamingResponse:
         directory = resolve(scenario)
-        if not agents_available():
-            raise HTTPException(501, NO_AGENTS)
         held = lock_for(directory)
         if held.locked():
             raise HTTPException(409, BUSY)
@@ -3764,7 +3699,7 @@ git commit -m "feat(server): the design endpoints, the form, and the agent's eve
 - Consumes: `Casus.shell.route`, `Casus.shell.onHome`, `Casus.shell.json`, `Casus.i18n.t`, `Casus.map.esc`, `Casus.map.draw`, `Casus.records.RunModel` (slice 1; `draw` fills regions when slice 2's `regions` are present); the endpoints of Task 6.
 - Produces: `Casus.workshop.mount(view, scenario) -> Promise<teardown>`, `Casus.workshop.diffHtml(diff) -> string`, `Casus.workshop.chipClass(sourcesBySlug, slug) -> "assumed" | "cited" | "missing"`; the route `#/design/<scenario>`; a `✎ Design` button in every `[data-actions="scenario"]` row and a `＋ New scenario` card on the home screen.
 
-The screen follows the mockup's `taller()`: the agent pane on the left (tool lines with their results, red on failure, a collapsible diff under each write), the status strip, four tabs (form, `scenario.yaml`, `rules.py`, a read-only map), a Save button that is a whole-file write, and a result panel with the findings and the diff of the last save. Assumptions are violet chips, citations blue, a missing source red; clicking a chip opens the archived page or the assumption's reason. Without the agents extra the chat is replaced by the install note and every tab still saves. While the agent works, every field, Save and the chat box are disabled.
+The screen follows the mockup's `taller()`: the agent pane on the left (tool lines with their results, red on failure, a collapsible diff under each write), the status strip, four tabs (form, `scenario.yaml`, `rules.py`, a read-only map), a Save button that is a whole-file write, and a result panel with the findings and the diff of the last save. Assumptions are violet chips, citations blue, a missing source red; clicking a chip opens the archived page or the assumption's reason. While the agent works, every field, Save and the chat box are disabled.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3825,7 +3760,6 @@ Add these keys to the `en` object of `STRINGS`:
       ws_agent: "Design agent",
       ws_agent_note: "Twelve tools and nothing else: no shell, no file paths. It writes whole files, and every write goes through the validator.",
       ws_ask: "Ask for a change to the scenario…", ws_send: "Send",
-      ws_no_agents: "The design agent is not installed. Editing by hand works. To talk to the agent, install the agents extra (Python 3.13 or later):",
       ws_form: "Form", ws_map: "Map", ws_save: "Save", ws_runnable: "Runnable", ws_working_copy: "Working copy",
       ws_clean: "same as runnable", ws_failing: "failing", ws_unvalidated: "not yet validated",
       ws_unsaved: "unsaved edits", ws_stale: "the runnable version changed outside the workshop",
@@ -3848,7 +3782,6 @@ and to the `es` object:
       ws_agent: "Agente de diseño",
       ws_agent_note: "Doce herramientas y nada más: sin shell, sin rutas de fichero. Escribe ficheros enteros, y cada escritura pasa por el validador.",
       ws_ask: "Pide un cambio al escenario…", ws_send: "Enviar",
-      ws_no_agents: "El agente de diseño no está instalado. La edición a mano funciona. Para hablar con el agente, instala el extra agents (Python 3.13 o posterior):",
       ws_form: "Formulario", ws_map: "Mapa", ws_save: "Guardar", ws_runnable: "Ejecutable", ws_working_copy: "Copia de trabajo",
       ws_clean: "igual a la ejecutable", ws_failing: "con errores", ws_unvalidated: "sin validar",
       ws_unsaved: "cambios sin guardar", ws_stale: "la versión ejecutable cambió fuera del taller",
@@ -3932,10 +3865,8 @@ The `ws_` prefix keeps these keys apart from those slices 3, 5 and 7 add to the 
         <div class="agent">
           <div class="ah"><b>${t("ws_agent")}</b><div>${t("ws_agent_note")}</div></div>
           <div class="log" id="wlog"></div>
-          ${info.agents
-            ? `<div class="ask"><div class="askrow"><textarea id="wq" placeholder="${esc(t("ws_ask"))}"></textarea>
-                 <button class="btn primary" id="wsend">${t("ws_send")}</button></div></div>`
-            : `<div class="noagent">${t("ws_no_agents")}<code>uv sync --extra agents</code></div>`}
+          <div class="ask"><div class="askrow"><textarea id="wq" placeholder="${esc(t("ws_ask"))}"></textarea>
+            <button class="btn primary" id="wsend">${t("ws_send")}</button></div></div>
         </div>
         <div class="work">
           <div class="wstatus" id="wstatus"></div>
@@ -4045,9 +3976,8 @@ The `ws_` prefix keeps these keys apart from those slices 3, 5 and 7 add to the 
         else el.readOnly = on || el.hasAttribute("data-fixed");
       }
       $("#wsave").disabled = on;
-      const q = $("#wq"), s = $("#wsend");
-      if (q) q.disabled = on;
-      if (s) s.disabled = on;
+      $("#wq").disabled = on;
+      $("#wsend").disabled = on;
     }
 
     async function render() {
@@ -4153,15 +4083,13 @@ The `ws_` prefix keeps these keys apart from those slices 3, 5 and 7 add to the 
           ${s.url ? ` · <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a>` : ""}</div>
         <div class="srcbody">${esc(s.reason || (s.body || "").slice(0, 4000))}</div>`;
     });
-    if (info.agents) {
-      $("#wsend").addEventListener("click", () => {
-        const q = $("#wq"), v = q.value.trim();
-        if (v) { q.value = ""; ask(v); }
-      });
-      $("#wq").addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#wsend").click(); }
-      });
-    }
+    $("#wsend").addEventListener("click", () => {
+      const q = $("#wq"), v = q.value.trim();
+      if (v) { q.value = ""; ask(v); }
+    });
+    $("#wq").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#wsend").click(); }
+    });
 
     status();
     await render();
@@ -4213,8 +4141,6 @@ Append:
 pre.diff{font-family:var(--mono);font-size:11px;line-height:1.5;padding:8px 10px;white-space:pre-wrap;color:var(--dim);margin:6px 0 0}
 pre.diff .add{color:var(--ok)}pre.diff .del{color:var(--bad)}pre.diff .hunk{color:var(--accent)}
 .wdiff summary{cursor:pointer;color:var(--dim);font-size:11px;margin-top:4px}
-.noagent{border-top:1px solid var(--line);padding:14px 18px;font-size:13px;color:var(--dim);line-height:1.5}
-.noagent code{display:block;margin-top:8px;color:var(--ink);font-family:var(--mono)}
 textarea.code{display:block;width:100%;height:100%;min-height:60vh;background:#0a1019;border:0;color:#c9d2de;font-family:var(--mono);font-size:12.3px;line-height:1.6;padding:16px 22px;resize:none}
 .wresult{border-top:1px solid var(--line);padding:10px 20px;max-height:38%;overflow:auto;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
 .wresult[hidden],.tabs[hidden]{display:none}
@@ -4328,18 +4254,7 @@ def test_a_form_save_goes_through_the_validator(page, workshop):
     assert "stamina" in page.locator("#wresult pre.diff").inner_text()
 
 
-def test_without_the_agents_extra_the_chat_is_a_note_and_editing_works(page, workshop, monkeypatch):
-    url, _ = workshop
-    monkeypatch.setattr("casus.server.design.agents_available", lambda: False)
-    page.goto(url + "#/design/smoke")
-    page.wait_for_selector(".noagent")
-    assert page.locator("#wq").count() == 0
-    assert "uv sync --extra agents" in page.locator(".noagent").inner_text()
-    assert page.locator("#wsave").is_enabled()
-
-
 def test_the_chat_draws_tool_lines_and_the_answer(page, workshop, monkeypatch):
-    pytest.importorskip("lovelaice")
     from design_support import ScriptedLLM, call, say
 
     llm = ScriptedLLM(call("read_scenario"), say("Two actors, three places."))
@@ -4389,15 +4304,9 @@ git commit -m "test(browser): the workshop in real Chromium"
 ### Task 9: Docs, the spec status, and the acceptance check
 
 **Files:**
-- Modify: `README.md` ("Install and run", the module table), `AGENTS.md`, `scenarios/README.md`, `docs/specs/2026-09-29-design-mode-design.md` (status), `docs/plans/2026-09-29-casus-app-plan.md` (slice table: the PR number only)
+- Modify: `README.md` (the module table), `AGENTS.md`, `scenarios/README.md`, `docs/specs/2026-09-29-design-mode-design.md` (status), `docs/plans/2026-09-29-casus-app-plan.md` (slice table: the PR number only)
 
 - [ ] **Step 1: README**
-
-Under "Install and run", after `casus serve`:
-
-```bash
-uv sync --extra agents                   # the design agent (Python 3.13 or later)
-```
 
 Add rows to the module table:
 
@@ -4454,7 +4363,6 @@ Open `#/design/caribbean-mx` and send: "Add Mexico as a mediator that can only n
 5. The closing summary is two or three sentences in Spanish, the scenario's language. The reference ruleset's `available` offers an actor with no forces every action type that needs none, so "can only negotiate" is not expressible in `scenario.yaml` alone. The agent must either write a `rules.py` restricting Mexico's offer and name that mechanic, or say plainly that the reference offers more. Record which it did.
 6. `uv run casus run /tmp/casus-accept/scenarios/caribbean-mx --turns 1 --out /tmp/casus-accept/runs/mx-1.jsonl` plays a turn in which Mexico declares.
 7. The chat is at `~/.local/share/casus/sessions/caribbean-mx.jsonl`, and nothing chat-like is under `/tmp/casus-accept/scenarios/caribbean-mx`.
-8. `uv sync --locked` (no extras), restart `casus serve`: the workshop shows the install note in place of the chat, and a save from the `scenario.yaml` tab still validates. Restore with `uv sync --all-extras`.
 
 The private scenario itself is not touched by this check.
 
@@ -4480,7 +4388,7 @@ Journal a `milestone` entry in the Workspace for the slice, per the master plan'
 The master plan must change in the same PR as this slice, as follows.
 
 1. **File structure, additions.**
-   - `src/casus/validate/sources.py` (the slug rule, the source file format, `check_sources`). The rule is the validator's, so it lives with the validator and imports without the extra.
+   - `src/casus/validate/sources.py` (the slug rule, the source file format, `check_sources`). The rule is the validator's, so it lives with the validator and does not import lovelaice.
    - `src/casus/validate/full.py` (`check()`, the one composition `casus validate` and the workshop share).
    - `src/casus/design/form.py` (the form's edits applied to scenario.yaml).
    - `src/casus/server/design.py` (the design router).
@@ -4493,15 +4401,15 @@ The master plan must change in the same PR as this slice, as follows.
    - `ui/css/app.css`: the workshop rules.
    - `tests/browser/browser_support.py`: `serve` takes `scenarios_dir`.
    - `tests/test_scenario.py`, `tests/test_purity.py`, `tests/test_ui_scripts.py`, `.gitignore`.
-   - The table says `design/` is "(agents extra)". Only `design/tools.py` and `design/agent.py` need the extra.
+   - Within `design/`, only `design/tools.py` and `design/agent.py` import lovelaice.
 3. **HTTP, additions under `/api/design`.**
-   - `GET /{scenario}` returns the overview: `exists`, `agents`, `busy`, `status`, `data`, `initial`, `regions`, `sources`.
+   - `GET /{scenario}` returns the overview: `exists`, `busy`, `status`, `data`, `initial`, `regions`, `sources`.
    - `POST /{scenario}/form` with `{edits}` returns `{text}`.
    - `GET /{scenario}/sources/{slug}` returns one source.
 4. **HTTP, precisions to existing rows.**
    - `GET /design/{scenario}/files/{name}` returns `{name, text, origin, editable}`.
    - `PUT` takes `{text}`. A failing write is `200` with `ok: false`. A save while the agent works is `409`.
-   - `POST /design/{scenario}/chat` returns `409` while busy and `501` without the agents extra.
+   - `POST /design/{scenario}/chat` returns `409` while busy.
 5. **Agent event stream.**
    - `tool_end` gains an optional `diff` (a unified diff) on `write_scenario`, `write_rules` and `create`.
    - An error inside a turn arrives as a `delta` before `done`.
@@ -4512,7 +4420,6 @@ The master plan must change in the same PR as this slice, as follows.
    - `build_tools(scenario_dir, settings, *, http=None, cap=None) -> list[AgentTool]`.
    - `build_design_agent(scenario_dir, settings, session_dir, *, http=None) -> DesignAgent`, with `async turn(text, send) -> str`.
 7. **What this slice reads from slice 2.** Listing a country's provinces uses `casus.geo.mapdata.load_admin1()` and its `MapData.names` and `MapData.country_of` maps, which slice 2's plan defines. (Slice 2's `provinces(codes)` returns a geometry, not a list, so it is not the call to use here.) The workshop also relies on `Scenario.load(directory)` reading `<directory>/regions.json`, which is how a draft is validated from `.draft/`.
-8. **The `agents` extra.**
-   - It holds exactly `lovelaice>=2.13.1; python_version >= '3.13'`, and this slice adds it unless slice 7 already has.
-   - CI's `test` job becomes a matrix over Python 3.12 and 3.13, syncing `--all-extras`.
-   - A 3.13-only step imports `lovelaice` and `casus.design.agent`, so the lovelaice tests cannot skip silently.
+8. **lovelaice.**
+   - `[project] dependencies` holds `"lovelaice>=2.13.1"` with no marker, and this slice adds it unless slice 7 already has.
+   - CI stays one job; nothing about it changes in this slice.

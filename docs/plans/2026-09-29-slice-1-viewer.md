@@ -6,7 +6,7 @@
 
 **Architecture:** `ui/js/*.js` are classic scripts on one `Casus` namespace. `records.js` folds transcript records into a `RunModel`; `viewer.js` plays a model in four beats; `map.js` and `card.js` draw the theatre and the hover card. `casus bundle` concatenates the scripts into `ui/bundle.html`; `casus serve` starts a FastAPI app that serves `ui/app.html`, the scripts, and three read-only endpoints.
 
-**Tech Stack:** Python 3.12, FastAPI, uvicorn, plain JS, pytest, Playwright (Python) with Chromium, node (for `node --check` and the JS unit harness).
+**Tech Stack:** Python 3.13, FastAPI, uvicorn, plain JS, pytest, Playwright (Python) with Chromium, node (for `node --check` and the JS unit harness).
 
 **Specs:** `docs/specs/2026-09-28-interface-design.md` (all of "The shell", "The game viewer", "The frontend", "What the display block gains"). Master plan: `docs/plans/2026-09-29-casus-app-plan.md` (the contracts section is binding).
 
@@ -1565,7 +1565,7 @@ git commit -m "feat(bundle): the offline bundle plays the new viewer"
 
 - [ ] **Step 1: Add the dependencies**
 
-In `pyproject.toml`, add to `dependencies`: `"fastapi>=0.115"`, `"uvicorn>=0.30"`; add to the `dev` group: `"playwright>=1.47"`. Run `uv lock && uv sync`.
+In `pyproject.toml`, set `requires-python = ">=3.13"` (lovelaice, which slices 6 and 7 add as a normal dependency, requires it, and casus is one package with no optional extras), add to `dependencies`: `"fastapi>=0.115"`, `"uvicorn>=0.30"`; add to the `dev` group: `"playwright>=1.47"`. Run `uv lock && uv sync`; uv fetches a 3.13 interpreter if none is installed.
 
 - [ ] **Step 2: Write the failing server tests**
 
@@ -2203,7 +2203,7 @@ Add rows to the module table: `studies.py` ("What is under runs/ and how far eac
 
 - [ ] **Step 2: AGENTS.md**
 
-Replace the `ui/` line under "Where everything lives" with:
+Change "Python 3.12+" under "Conventions" to "Python 3.13+". Replace the `ui/` line under "Where everything lives" with:
 
 ```markdown
 - `ui/` — the viewer and the app: classic scripts under `js/` on one `Casus`

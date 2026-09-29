@@ -6,7 +6,7 @@
 
 **Architecture:** `src/casus/settings.py` holds the `Settings` dataclass from the master plan. `Settings.load` resolves each field from the environment, then the file, then a default, and records the origin; `save` writes a flat TOML file by hand (no new dependency) with mode 0600; `apply_to_env` exports the endpoint and key through the variables lingo reads (`BASE_URL`, `API_KEY`); `probe` makes one short completion through a lingo-built client. `casus run` and `casus serve` load and apply the settings before anything builds an engine. The app gains `GET/PUT /api/settings` and `POST /api/settings/probe`, and the shell gains a settings modal behind a button in `#topactions`.
 
-**Tech Stack:** Python 3.12 (`tomllib` from the standard library), FastAPI, lingo-ai (its `LLM` builds the OpenAI-compatible client), httpx `MockTransport` for every test that would touch a provider, plain JS, pytest, Playwright.
+**Tech Stack:** Python 3.13 (`tomllib` from the standard library), FastAPI, lingo-ai (its `LLM` builds the OpenAI-compatible client), httpx `MockTransport` for every test that would touch a provider, plain JS, pytest, Playwright.
 
 **Specs:** `docs/specs/2026-09-28-interface-design.md` ("Settings"), and the v2 design's "Configuration and secrets" section (`/home/apiad/Workspace/vault/Atlas/Architecture/2026-09-28-casus-general-conflict-simulator-design.md`). Master plan: `docs/plans/2026-09-29-casus-app-plan.md` (the `Settings` interface, `probe`, and the `/settings` rows of the HTTP table are binding).
 
