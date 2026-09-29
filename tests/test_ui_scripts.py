@@ -93,3 +93,18 @@ def test_a_sealed_turn_does_not_reveal_what_was_aimed_at_the_place(tmp_path):
 def test_the_card_shows_before_and_after_for_card_attributes(tmp_path):
     html = _card(_records(tmp_path), "border")
     assert "infra" in html
+
+
+@pytest.mark.parametrize("name", sorted(p.name for p in (ROOT / "ui" / "js").glob("*.js")))
+def test_every_ui_script_parses(name):
+    """The scripts are classic so the bundle can concatenate them. node --check
+    exits 0 on a .js file in ES module syntax even with a syntax error, so this
+    test relies on ui/ staying classic."""
+    done = subprocess.run(
+        [NODE, "--check", str(ROOT / "ui" / "js" / name)], capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr[:400]
+
+
+def test_viewer_js_exists():
+    assert (ROOT / "ui" / "js" / "viewer.js").is_file()
