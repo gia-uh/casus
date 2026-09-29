@@ -28,38 +28,54 @@ class RunInfo:
         return {**dataclasses.asdict(self), "path": str(self.path)}
 
 
+class NotATranscript(ValueError):
+    """A file under runs/ that does not read as a transcript."""
+
+
+def read_transcript(path: pathlib.Path) -> tuple[list[dict], bool]:
+    """Every record in `path`, and whether its last line was torn.
+
+    A half-written last line, even one cut inside a UTF-8 character, is the end
+    of the file: a run killed mid-write leaves one. An undecodable line with
+    another after it, or a line that is not a JSON object, is not a transcript.
+    """
+    records: list[dict] = []
+    torn = False
+    with path.open("rb") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            if torn:
+                raise NotATranscript(f"{path}: an undecodable line is not the last")
+            try:
+                record = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                torn = True
+                continue
+            if not isinstance(record, dict):
+                raise NotATranscript(f"{path}: a line is not a JSON object")
+            records.append(record)
+    return records, torn
+
+
 def _scan(path: pathlib.Path) -> RunInfo | None:
-    header, states, failed, ended, torn = None, 0, False, False, False
     try:
-        with path.open("rb") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                if torn:
-                    return None
-                try:
-                    record = json.loads(line)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    # A half-written last line, even one cut inside a UTF-8
-                    # character, is the end of the file; if another line
-                    # follows it, the file is not a transcript.
-                    torn = True
-                    continue
-                if not isinstance(record, dict):
-                    return None
-                kind = record.get("kind")
-                if header is None:
-                    if kind != "scenario":
-                        return None
-                    header = record
-                elif kind == "state":
-                    states += 1
-                elif kind == "error":
-                    failed = True
-                elif kind == "end":
-                    ended = True
-    except OSError:
+        records, torn = read_transcript(path)
+    except (OSError, NotATranscript):
         return None
+    header, states, failed, ended = None, 0, False, False
+    for record in records:
+        kind = record.get("kind")
+        if header is None:
+            if kind != "scenario":
+                return None
+            header = record
+        elif kind == "state":
+            states += 1
+        elif kind == "error":
+            failed = True
+        elif kind == "end":
+            ended = True
     if header is None:
         return None
     status: Status = "failed" if failed else "complete" if ended and not torn else "incomplete"

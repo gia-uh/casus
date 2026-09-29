@@ -4,7 +4,7 @@ import shutil
 import pytest
 from fastapi.testclient import TestClient
 
-from casus import engine
+from casus import bundle, engine
 from casus.scenario import Scenario
 from casus.server.app import create_app
 from helpers import FakeEngine
@@ -57,6 +57,21 @@ def test_a_run_is_served_as_viewer_records(client):
     records = client.get("/api/runs/smoke-5").json()
     kinds = {r["kind"] for r in records}
     assert "ledger" in kinds and "mutation" not in kinds
+
+
+def test_a_run_cut_mid_line_is_served_without_its_torn_last_line(client, runs):
+    path = runs / "smoke-5.jsonl"
+    whole = bundle.viewer_records(engine.read_records(path))
+    path.write_text(path.read_text() + '{"kind":"sta')
+    response = client.get("/api/runs/smoke-5")
+    assert response.status_code == 200
+    assert response.json() == whole
+
+
+def test_a_run_that_is_not_a_transcript_is_a_404(client, runs):
+    lines = (runs / "smoke-5.jsonl").read_text().splitlines()
+    (runs / "mangled.jsonl").write_text("\n".join([lines[0], "{", *lines[1:]]) + "\n")
+    assert client.get("/api/runs/mangled").status_code == 404
 
 
 def test_an_unknown_run_is_a_404(client):

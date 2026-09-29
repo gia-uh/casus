@@ -1,6 +1,8 @@
 import json
 import pathlib
 
+import pytest
+
 from casus import engine, studies
 from casus.scenario import Scenario
 from helpers import FakeEngine
@@ -89,3 +91,18 @@ def test_a_header_with_a_malformed_number_is_skipped(tmp_path):
     (tmp_path / "text-seed.jsonl").write_text('{"kind":"scenario","seed":"x"}\n')
     (tmp_path / "inf-seed.jsonl").write_text('{"kind":"scenario","seed":Infinity}\n')
     assert [i.id for i in studies.list_runs(tmp_path)] == ["smoke-2"]
+
+
+def test_reading_a_torn_transcript_drops_only_the_half_written_last_line(tmp_path):
+    path = _run(tmp_path, seed=5, turns=2)
+    whole = engine.read_records(path)
+    path.write_text(path.read_text() + '{"kind":"sta')
+    assert studies.read_transcript(path) == (whole, True)
+
+
+def test_reading_a_transcript_with_a_bad_line_before_the_last_fails(tmp_path):
+    path = _run(tmp_path, seed=8, turns=2)
+    lines = path.read_text().splitlines()
+    path.write_text("\n".join([lines[0], '{"kind":"sta', *lines[1:]]) + "\n")
+    with pytest.raises(studies.NotATranscript):
+        studies.read_transcript(path)

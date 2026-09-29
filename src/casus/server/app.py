@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import bundle, engine, studies
+from .. import bundle, studies
 from ..scenario import Scenario, ScenarioError
 
 UI = pathlib.Path(__file__).parent.parent.parent.parent / "ui"
@@ -107,6 +107,10 @@ def create_app(
         path = _run_path(runs_dir, run_id)
         if path is None:
             raise HTTPException(404, "no such run")
-        return bundle.viewer_records(engine.read_records(path))
+        try:
+            records, _ = studies.read_transcript(path)
+        except studies.NotATranscript:
+            raise HTTPException(404, "no such run") from None
+        return bundle.viewer_records(records)
 
     return app
