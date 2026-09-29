@@ -64,6 +64,14 @@ def test_a_run_cut_before_its_last_state_leaves_that_turn_incomplete(tmp_path):
     assert model["ended"] is False
 
 
+def test_an_error_before_the_first_prompt_is_the_runs_error(tmp_path):
+    records = _records(tmp_path, turns=2)
+    first_prompt = next(i for i, r in enumerate(records) if r["kind"] == "prompt")
+    error = {"kind": "error", "turn": 1, "error": "boom in view"}
+    model = _model([*records[:first_prompt], error])
+    assert (model["playable"], model["error"], model["ended"]) == ([], error["error"], False)
+
+
 def test_labels_fall_back_from_display_to_names_to_ids(tmp_path):
     model = _model(_records(tmp_path), labels=["BLUE", "border", "no_such_thing"])
     assert model["labels"] == ["Blue", "The Border", "no such thing"]

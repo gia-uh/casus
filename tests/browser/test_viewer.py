@@ -86,3 +86,48 @@ def test_presenter_mode_hides_the_controls(page, bundle_url, tmp_path):
     assert not page.locator(".controls").is_visible()
     page.keyboard.press("Escape")
     assert page.locator(".controls").is_visible()
+
+
+def _failed_before_prompts(records: list[dict], turn: int) -> list[dict]:
+    """The run as the engine leaves it when a rule raises inside view() on `turn`:
+    no prompt for that turn, and an error record in its place."""
+    first = next(i for i, r in enumerate(records) if r["kind"] == "prompt" and r["turn"] == turn)
+    return [*records[:first], {"kind": "error", "turn": turn, "error": "boom in view"}]
+
+
+def _chrome(page, key: str) -> str:
+    return page.evaluate(f"Casus.i18n.t({key!r})")
+
+
+def test_a_run_that_fails_before_its_first_prompt_shows_the_failure(page, bundle_url, tmp_path):
+    page.goto(bundle_url(_failed_before_prompts(run_records(tmp_path), turn=1)))
+    closing = page.locator(".finale")
+    assert _chrome(page, "failed") in closing.inner_text()
+    assert "boom in view" in closing.inner_text()
+
+
+def test_a_run_that_fails_before_day_two_ends_on_the_failure(page, bundle_url, tmp_path):
+    page.goto(bundle_url(_failed_before_prompts(run_records(tmp_path), turn=2)))
+    step_to(page, 1, "dispatch")
+    page.keyboard.press("ArrowRight")
+    closing = page.locator(".finale").inner_text()
+    assert _chrome(page, "failed") in closing and "boom in view" in closing
+    assert _chrome(page, "end") not in closing
+
+
+def test_a_run_cut_short_ends_on_incomplete(page, bundle_url, tmp_path):
+    records = run_records(tmp_path, turns=2)
+    last_state = max(i for i, r in enumerate(records) if r["kind"] == "state")
+    page.goto(bundle_url(records[:last_state]))
+    step_to(page, 2, "dispatch")
+    page.keyboard.press("ArrowRight")
+    closing = page.locator(".finale").inner_text()
+    assert _chrome(page, "incomplete") in closing
+    assert _chrome(page, "end") not in closing
+
+
+def test_a_run_cut_before_any_prompt_says_incomplete(page, bundle_url, tmp_path):
+    records = run_records(tmp_path, turns=2)
+    first_prompt = next(i for i, r in enumerate(records) if r["kind"] == "prompt")
+    page.goto(bundle_url(records[:first_prompt]))
+    assert _chrome(page, "incomplete") in page.locator(".finale").inner_text()

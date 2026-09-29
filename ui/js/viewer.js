@@ -221,9 +221,16 @@
           <h2>${esc(cur.narrative || t("no_dispatch"))}</h2><ul>${lines}</ul>
         </div>`);
     }
-    function finale() {
-      $("#stage").insertAdjacentHTML("beforeend", `<div class="finale"><div class="box"><div class="rectag">${t("end")}</div><h2>${esc(run.header ? run.header.name : "")}</h2></div></div>`);
+    // How the run closes: an error ends it wherever it happened, even before a
+    // turn anybody could play; a run with neither error nor end was cut short.
+    function closing() {
+      const why = run.error ? t("failed") : run.ended ? t("end") : t("incomplete");
+      return `<div class="finale"><div class="box"><div class="rectag">${why}</div><h2>${esc(run.header ? run.header.name : "")}</h2>${run.error ? `<p>${esc(run.error.error)}</p>` : ""}</div></div>`;
     }
+    function finale() { $("#stage").insertAdjacentHTML("beforeend", closing()); }
+    // A recorded run with no playable turn has nothing to step through; say why.
+    // A live one is still waiting unless it has already failed.
+    function empty() { $("#stage").innerHTML = !live || run.error ? closing() : ""; header(); }
 
     // ---- the clock and the keys ----
     function next() {
@@ -268,9 +275,9 @@
     $("#vdots").onclick = (e) => { const i = e.target.dataset.i; if (i !== undefined) { V.done = false; V.ti = +i; enter(0); } };
 
     // A live run may start with no playable turn; enter the first when it appears.
-    const onChange = () => { if (V.beat === 0 && !V.panes.length && T()) enter(0); else header(); };
+    const onChange = () => { if (V.beat === 0 && !V.panes.length) { if (T()) enter(0); else empty(); } else header(); };
     run.onChange(onChange);
-    if (T()) enter(0); else header();
+    if (T()) enter(0); else empty();
     V.raf = requestAnimationFrame(frame);
     return {
       destroy() { cancelAnimationFrame(V.raf); document.removeEventListener("keydown", key); },
