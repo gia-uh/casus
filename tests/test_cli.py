@@ -19,3 +19,14 @@ def test_validate_reports_findings_and_fails(tmp_path, capsys):
     (directory / "rules.py").write_text("import os\n")
     assert cli.main(["validate", str(directory)]) == 1
     assert "forbidden-import" in capsys.readouterr().out
+
+
+def test_serve_starts_uvicorn_on_loopback(monkeypatch):
+    calls = {}
+
+    def fake_run(app, host, port, log_level):
+        calls.update(host=host, port=port)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    assert cli.main(["serve", "--no-open", "--port", "8765"]) == 0
+    assert calls == {"host": "127.0.0.1", "port": 8765}

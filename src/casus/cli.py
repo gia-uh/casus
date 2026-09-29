@@ -53,6 +53,12 @@ def main(argv: list[str] | None = None) -> int:
         "--out", default=None, help="write the report here instead of stdout"
     )
 
+    serve_cmd = sub.add_parser("serve", help="open the app in a browser, on this machine only")
+    serve_cmd.add_argument("--scenarios", default="scenarios")
+    serve_cmd.add_argument("--runs", default="runs")
+    serve_cmd.add_argument("--port", type=int, default=8321)
+    serve_cmd.add_argument("--no-open", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -63,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
         return _score(args)
     if args.command == "validate":
         return _validate(args)
+    if args.command == "serve":
+        return _serve(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -147,6 +155,25 @@ def _score(args) -> int:
     else:
         print(text)
     return 0 if result.reproducible else 1
+
+
+def _serve(args) -> int:
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .server.app import create_app
+
+    app = create_app(
+        scenarios_dir=pathlib.Path(args.scenarios), runs_dir=pathlib.Path(args.runs)
+    )
+    url = f"http://127.0.0.1:{args.port}/"
+    if not args.no_open:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    print(f"casus: {url}")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
 
 
 def _verify(transcript: str, quiet: bool) -> int:
