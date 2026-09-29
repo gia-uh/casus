@@ -7,6 +7,7 @@ import shutil
 import subprocess
 
 import pytest
+import yaml
 
 from casus import bundle, engine
 from casus.scenario import Scenario
@@ -75,6 +76,16 @@ def test_an_error_before_the_first_prompt_is_the_runs_error(tmp_path):
 def test_labels_fall_back_from_display_to_names_to_ids(tmp_path):
     model = _model(_records(tmp_path), labels=["BLUE", "border", "no_such_thing"])
     assert model["labels"] == ["Blue", "The Border", "no such thing"]
+
+
+def test_a_spanish_run_takes_its_labels_from_the_display_block(tmp_path):
+    records = _records(tmp_path)
+    records[0]["language"] = "es"
+    spanish = yaml.safe_load(
+        (ROOT / "scenarios" / "smoke" / "scenario.yaml").read_text(encoding="utf-8")
+    )["display"]["labels"]["es"]
+    model = _model(records, labels=["BLUE", "border", "no_such_thing"])
+    assert model["labels"] == [spanish["BLUE"], spanish["border"], "no such thing"]
 
 
 def _card(records, place, sealed=False):
