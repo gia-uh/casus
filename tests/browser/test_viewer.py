@@ -21,8 +21,11 @@ def test_recorded_resolution_is_not_frozen(page, bundle_url, tmp_path):
     own resolution animation on the first phase."""
     page.goto(bundle_url(run_records(tmp_path)))
     step_to(page, 1, "resolving")
-    page.wait_for_timeout(3200)
-    assert page.locator(".phase.past").count() == 5
+    page.wait_for_function(
+        "() => { const n = document.querySelectorAll('.phase').length;"
+        " return n > 0 && document.querySelectorAll('.phase.past').length === n; }",
+        timeout=10_000,
+    )
 
 
 def test_space_freezes_the_scene(page, bundle_url, tmp_path):
@@ -48,13 +51,18 @@ def test_card_refreshes_when_the_map_redraws(page, bundle_url, tmp_path):
     assert "sealed" in page.locator("#tip").inner_text().lower()
     step_to(page, 1, "declaring")  # the board map redraws under the still pointer
     page.wait_for_timeout(200)
-    assert "sealed" not in page.locator("#tip").inner_text().lower()
+    assert page.locator("#tip").is_visible()
+    card = page.locator("#tip").inner_text().lower()
+    assert "sealed" not in card
+    assert "nobody declared anything against this place" in card
 
 
 def test_viewer_truncated_transcript(page, bundle_url, tmp_path):
     records = run_records(tmp_path, turns=2)
     last_state = max(i for i, r in enumerate(records) if r["kind"] == "state")
     page.goto(bundle_url(records[:last_state]))
+    step_to(page, 1, "resolving")
+    assert page.locator(".banner").count() == 0, "a complete day shows the incomplete banner"
     step_to(page, 2, "resolving")
     assert page.locator(".banner").is_visible()
 
