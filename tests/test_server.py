@@ -1,4 +1,5 @@
 import pathlib
+import shutil
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,3 +76,38 @@ def test_a_run_id_cannot_leave_the_runs_directory(client, runs, bad):
         target.parent.mkdir(exist_ok=True)
         target.write_text(transcript)
     assert client.get(f"/api/runs/{bad}").status_code == 404
+
+
+def test_a_broken_scenario_gets_a_card_and_does_not_blank_the_list(tmp_path, runs):
+    scenarios = tmp_path / "scenarios"
+    shutil.copytree(SCENARIOS / "smoke", scenarios / "smoke")
+    shutil.copytree(SCENARIOS / "smoke", scenarios / "bad-rules")
+    (scenarios / "bad-rules" / "rules.py").write_text("import os\n")
+    (scenarios / "bad-yaml").mkdir()
+    (scenarios / "bad-yaml" / "scenario.yaml").write_text("name: [unclosed\n")
+    client = TestClient(create_app(scenarios_dir=scenarios, runs_dir=runs))
+
+    response = client.get("/api/scenarios")
+
+    assert response.status_code == 200
+    by_dir = {s["dir"]: s for s in response.json()}
+    assert by_dir.keys() == {"smoke", "bad-rules", "bad-yaml"}
+    for broken in ("bad-rules", "bad-yaml"):
+        assert by_dir[broken]["valid"] is False and by_dir[broken]["findings"]
+    assert by_dir["bad-yaml"]["name"] == "bad-yaml"
+    assert by_dir["bad-yaml"]["actors"] is None
+    assert by_dir["smoke"]["valid"] is True
+
+
+@pytest.mark.parametrize("stem", ["my run", "it's", "evil\n"])
+def test_a_run_the_endpoint_refuses_is_not_listed(client, runs, stem):
+    shutil.copy(runs / "smoke-5.jsonl", runs / f"{stem}.jsonl")
+    assert [r["id"] for r in client.get("/api/runs").json()] == ["smoke-5"]
+
+
+def test_a_symlink_out_of_the_runs_directory_is_neither_listed_nor_served(client, runs):
+    outside = runs.parent / "outside.jsonl"
+    shutil.copy(runs / "smoke-5.jsonl", outside)
+    (runs / "evil.jsonl").symlink_to(outside)
+    assert [r["id"] for r in client.get("/api/runs").json()] == ["smoke-5"]
+    assert client.get("/api/runs/evil").status_code == 404
