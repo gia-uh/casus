@@ -139,3 +139,29 @@ def test_every_ui_script_parses(name):
 
 def test_viewer_js_exists():
     assert (ROOT / "ui" / "js" / "viewer.js").is_file()
+
+
+
+def _chrome(key: str) -> dict[str, str]:
+    """`key` as the viewer shows it in each language."""
+    script = (
+        "const vm = require('vm'), fs = require('fs'), ctx = { window: {} };"
+        "vm.createContext(ctx); vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);"
+        "const i = ctx.window.Casus.i18n, out = {};"
+        "for (const l of ['en', 'es']) { i.use(l); out[l] = i.t(process.argv[2]); }"
+        "process.stdout.write(JSON.stringify(out));"
+    )
+    done = subprocess.run(
+        [NODE, "-e", script, str(ROOT / "ui" / "js" / "i18n.js"), key],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_cannot_open_notice_exists_in_english_and_spanish():
+    shown = _chrome("cannot_open")
+    assert "cannot_open" not in shown.values()
+    assert shown["en"] != shown["es"]

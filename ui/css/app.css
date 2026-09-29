@@ -24,6 +24,8 @@ body.present .chrome{display:none!important}
 
 /* ---------- home ---------- */
 .home{height:100%;overflow:auto;padding:46px 7vw 60px}
+.notice{display:flex;flex-direction:column;gap:12px;align-items:flex-start;max-width:560px;font-size:18px}
+.notice .meta{font-family:var(--mono);font-size:12px;color:var(--dim)}
 .hero{display:flex;align-items:flex-end;gap:28px;margin-bottom:44px}
 .hero h1{font-size:74px;line-height:.9;letter-spacing:-.04em;font-weight:700}
 .hero h1 i{font-style:normal;color:var(--accent)}

@@ -21,7 +21,7 @@
       still_sealed: "the declarations are still sealed", borders: "Borders", source: "source",
       controlled_by: "held by", open_water: "nobody holds it", arrived: "arrived from", left: "left",
       seed: "seed", legality: "legality", upkeep: "upkeep", movement: "movement", contest: "contest",
-      consequences: "consequences",
+      consequences: "consequences", cannot_open: "This could not be opened.", no_run_id: "no run was named",
     },
     es: {
       thinking: "pensando", declaring: "declarando", resolving: "resolviendo", dispatch: "parte",
@@ -41,7 +41,7 @@
       still_sealed: "las declaraciones siguen selladas", borders: "Linda con", source: "fuente",
       controlled_by: "controla", open_water: "nadie la controla", arrived: "llega de", left: "se fue",
       seed: "semilla", legality: "legalidad", upkeep: "mantenimiento", movement: "movimiento", contest: "disputa",
-      consequences: "consecuencias",
+      consequences: "consecuencias", cannot_open: "No se pudo abrir.", no_run_id: "no se indicó ninguna partida",
     },
   };
   let lang = "en";

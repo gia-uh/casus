@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_the_home_lists_scenarios_and_runs(page, app_url):
     page.goto(app_url)
     page.wait_for_selector("[data-scenario]")
@@ -10,3 +13,39 @@ def test_view_opens_the_viewer_on_a_recorded_run(page, app_url):
     page.locator(".runrow button").first.click()
     page.wait_for_selector(".visor")
     assert "recorded" in page.locator(".rectag").inner_text().lower()
+
+
+def test_a_run_cut_mid_line_opens(page, app_url, runs_dir):
+    path = runs_dir / "reference-1.jsonl"
+    path.write_text(path.read_text() + '{"kind":"sta')
+    page.goto(app_url)
+    page.locator(".runrow button").first.click()
+    page.wait_for_selector(".visor")
+
+
+@pytest.fixture
+def quiet_page(browser):
+    """A page that records uncaught errors but not console noise: the browser
+    logs every failed fetch to the console, and these tests make one on purpose."""
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    pg = ctx.new_page()
+    pg.uncaught = []
+    pg.on("pageerror", lambda e: pg.uncaught.append(str(e)))
+    yield pg
+    ctx.close()
+
+
+@pytest.mark.parametrize("route", ["#/view/no-such-run", "#/view/mangled", "#/view"])
+def test_a_run_that_cannot_be_opened_says_so(quiet_page, app_url, runs_dir, route):
+    lines = (runs_dir / "reference-1.jsonl").read_text().splitlines()
+    (runs_dir / "mangled.jsonl").write_text("\n".join([lines[0], "{", *lines[1:]]) + "\n")
+    page = quiet_page
+    page.goto(app_url)
+    page.wait_for_selector("[data-scenario]")
+    page.evaluate(f"location.hash = {route!r}")
+    notice = page.locator(".notice")
+    notice.wait_for(timeout=5_000)
+    assert page.evaluate("Casus.i18n.t('cannot_open')") in notice.inner_text()
+    assert page.locator("[data-scenario]").count() == 0
+    assert not page.uncaught
+

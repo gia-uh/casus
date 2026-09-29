@@ -61,10 +61,15 @@ def bundle_url(tmp_path):
 
 
 @pytest.fixture
-def app_url(tmp_path):
+def runs_dir(tmp_path):
     runs = tmp_path / "runs"
     runs.mkdir()
     write_run(runs, "reference-1", run_records(tmp_path))
-    url, stop = serve(runs)
+    return runs
+
+
+@pytest.fixture
+def app_url(runs_dir):
+    url, stop = serve(runs_dir)
     yield url
     stop()

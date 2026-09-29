@@ -33,6 +33,7 @@
   }
 
   async function viewRun(id) {
+    if (!id) throw new Error(C.i18n.t("no_run_id"));
     const records = await json("/api/runs/" + encodeURIComponent(id));
     const run = new C.records.RunModel();
     for (const r of records) run.push(r);
@@ -51,9 +52,19 @@
     const args = parts.map(decodeURIComponent);
     document.getElementById("crumbs").textContent = name ? `› ${name} · ${args.join(" · ")}` : "";
     // A route gets every path segment after its name: #/study/<scenario>/<version> has two.
-    if (name === "view") current = await viewRun(args[0]);
-    else if (routes[name]) current = await routes[name](view(), ...args);
-    else await home();
+    try {
+      if (name === "view") current = await viewRun(args[0]);
+      else if (routes[name]) current = await routes[name](view(), ...args);
+      else await home();
+    } catch (e) {
+      notice(e.message);
+    }
+  }
+
+  // What a route that failed leaves on screen, so a click never looks ignored.
+  function notice(detail) {
+    view().innerHTML = `<div class="home"><div class="notice"><p>${C.i18n.t("cannot_open")}</p>
+      <p class="meta">${esc(detail)}</p><a class="btn small" href="#/">${C.i18n.t("home")}</a></div></div>`;
   }
 
   function start() {
