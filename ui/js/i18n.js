@@ -37,7 +37,7 @@
       forces_here: "Fuerzas aquí", no_forces: "ninguna fuerza aquí", aimed_here: "Declarado para aquí · día",
       nobody_aimed: "nadie declaró nada contra este lugar",
       still_sealed: "las declaraciones siguen selladas", borders: "Linda con", source: "fuente",
-      controlled_by: "controla", open_water: "aguas abiertas", arrived: "llega de", left: "se fue",
+      controlled_by: "controla", open_water: "nadie la controla", arrived: "llega de", left: "se fue",
     },
   };
   let lang = "en";

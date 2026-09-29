@@ -2,6 +2,7 @@
 
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -9,7 +10,7 @@ import pytest
 
 from casus import bundle, engine
 from casus.scenario import Scenario
-from helpers import FakeEngine
+from helpers import FakeEngine, scripted
 
 ROOT = pathlib.Path(__file__).parent.parent
 HARNESS = ROOT / "tests" / "js" / "harness.js"
@@ -17,10 +18,10 @@ NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 
-def _records(tmp_path, turns=2):
+def _records(tmp_path, turns=2, reply=None):
     scenario = Scenario.load(ROOT / "scenarios" / "smoke")
     out = tmp_path / "run.jsonl"
-    engines = {a: FakeEngine() for a in scenario.actors}
+    engines = {a: FakeEngine(reply) for a in scenario.actors}
     engine.run(scenario, seed=1, out=out, engines=engines, turns=turns)
     return bundle.viewer_records(engine.read_records(out))
 
@@ -78,21 +79,51 @@ def _card(records, place, sealed=False):
     return json.loads(done.stdout)["card"]
 
 
+# Blue raids the border on turn 1, so the card has a declaration to seal and an
+# infra value that moves.
+RAID = {"type": "raid", "place": "border", "intensity": 2}
+RAIDING = scripted({"BLUE": {"actions": [RAID], "rationale": "go", "assessment": ""}})
+
+
+def _text(html):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html)).strip()
+
+
+def _states(records, place):
+    return [r["state"]["places"][place] for r in records if r["kind"] == "state"]
+
+
+def _actor_name(records, actor):
+    return records[0]["scenario"]["actors"][actor]["name"]
+
+
 def test_the_card_names_the_place_its_holder_and_its_neighbours(tmp_path):
-    html = _card(_records(tmp_path), "border")
+    records = _records(tmp_path)
+    html = _card(records, "border")
     assert "The Border" in html
-    assert "Red" in html
+    owner = _states(records, "border")[-1]["owner"]
+    holder = _text(re.search(r'<span class="own"[^>]*>(.*?)</span>', html).group(1))
+    assert holder.endswith(" " + _actor_name(records, owner))
     assert "Blue Home" in html and "Red Home" in html
 
 
 def test_a_sealed_turn_does_not_reveal_what_was_aimed_at_the_place(tmp_path):
-    html = _card(_records(tmp_path), "border", sealed=True)
-    assert "the declarations are still sealed" in html
+    records = _records(tmp_path, reply=RAIDING)
+    declared = f"{_actor_name(records, 'BLUE')} · {RAID['type']} ×{RAID['intensity']}"
+    open_rows = re.findall(r'<div class="drow">(.*?)</div>', _card(records, "border"))
+    assert [_text(row) for row in open_rows] == [declared]
+    sealed = _card(records, "border", sealed=True)
+    assert 'class="drow"' not in sealed
+    assert declared not in _text(sealed)
 
 
 def test_the_card_shows_before_and_after_for_card_attributes(tmp_path):
-    html = _card(_records(tmp_path), "border")
-    assert "infra" in html
+    records = _records(tmp_path, reply=RAIDING)
+    key = records[0]["scenario"]["display"]["card"][0]
+    before, after = (s["attrs"][key] for s in _states(records, "border")[:2])
+    assert round(before) != round(after)
+    row = re.search(rf'<div class="trow"><span>{key}</span>.*?</span>(?=</div>)', _card(records, "border"))
+    assert f"{round(before)} → {round(after)}" in _text(row.group(0))
 
 
 @pytest.mark.parametrize("name", sorted(p.name for p in (ROOT / "ui" / "js").glob("*.js")))
