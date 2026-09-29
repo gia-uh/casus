@@ -105,10 +105,11 @@ def test_the_bundled_script_is_syntactically_valid(transcript, tmp_path):
         pytest.skip("node is not installed; this guard needs a JS parser")
 
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
-    code = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
-    assert code, "the bundle carries no script block"
+    blocks = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
+    assert blocks, "the bundle carries no script block"
+    code = max(blocks, key=len)
     js = tmp_path / "bundled.js"
-    js.write_text(code[-1])
+    js.write_text(code)
 
     result = subprocess.run(
         [node, "--check", str(js)], capture_output=True, text=True, check=False
@@ -154,3 +155,20 @@ def test_an_error_record_reaches_the_viewer():
         {"kind": "error", "turn": 1, "error": "rule raised"},
     ]
     assert bundle.viewer_records(records)[-1]["kind"] == "error"
+
+
+def test_the_bundle_inlines_every_viewer_script_in_order(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    positions = [html.index(f"/* ui/js/{name} */") for name in bundle.SCRIPTS]
+    assert positions == sorted(positions)
+    assert bundle.SCRIPTS == ("i18n.js", "records.js", "map.js", "card.js", "viewer.js")
+
+
+def test_the_bundle_boots_the_viewer_in_recorded_mode(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert 'Casus.viewer.mount(' in html and '"recorded"' in html
+
+
+def test_no_script_or_style_in_the_bundle_names_a_web_font(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert "fonts.googleapis" not in html and "@import" not in html

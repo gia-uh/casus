@@ -10,11 +10,18 @@ from __future__ import annotations
 import json
 import pathlib
 
-TEMPLATE = pathlib.Path(__file__).parent.parent.parent / "ui" / "replay.html"
-WORLDMAP = pathlib.Path(__file__).parent.parent.parent / "ui" / "worldmap.json"
+UI = pathlib.Path(__file__).parent.parent.parent / "ui"
+TEMPLATE = UI / "bundle.html"
+WORLDMAP = UI / "worldmap.json"
+STYLE = UI / "css" / "app.css"
+
+#: The viewer's scripts, in load order. The app loads the same files by URL.
+SCRIPTS = ("i18n.js", "records.js", "map.js", "card.js", "viewer.js")
 
 DATA_TOKEN = "__CASUS_DATA__"
 MAP_TOKEN = "__CASUS_WORLDMAP__"
+STYLE_TOKEN = "__CASUS_STYLE__"
+SCRIPTS_TOKEN = "__CASUS_SCRIPTS__"
 
 #: Record kinds the viewer reads. `declaration` records are the replay payload and
 #: `mutation` records are the ledger; both stay in the transcript for audit. The
@@ -44,6 +51,11 @@ def bundle(
 
     html = (template or TEMPLATE).read_text()
     map_json = (worldmap or WORLDMAP).read_text()
+
+    # The code goes in before the data, so a transcript that happens to contain
+    # a token's text cannot inject into the page.
+    html = html.replace(STYLE_TOKEN, STYLE.read_text())
+    html = html.replace(SCRIPTS_TOKEN, _escape(_scripts()))
 
     # A closing script tag inside inlined JSON would end the block early and
     # leave the rest of the payload rendering as page text.
@@ -78,6 +90,12 @@ def viewer_records(records: list[dict]) -> list[dict]:
     for turn, n in sorted(counts.items()):
         out.append({"kind": "ledger", "turn": turn, "mutations": n})
     return out
+
+
+def _scripts() -> str:
+    return "\n".join(
+        f"/* ui/js/{name} */\n" + (UI / "js" / name).read_text() for name in SCRIPTS
+    )
 
 
 def _read(path: pathlib.Path) -> list[dict]:

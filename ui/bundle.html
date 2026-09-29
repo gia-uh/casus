@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>casus</title>
+<style>__CASUS_STYLE__</style>
+</head>
+<body>
+<div id="app"></div>
+<script id="casus-data" type="application/json">__CASUS_DATA__</script>
+<script id="casus-worldmap" type="application/json">__CASUS_WORLDMAP__</script>
+<script>
+window.CASUS_WORLDMAP = JSON.parse(document.getElementById("casus-worldmap").textContent);
+__CASUS_SCRIPTS__
+(function () {
+  var run = new Casus.records.RunModel();
+  JSON.parse(document.getElementById("casus-data").textContent).forEach(function (r) { run.push(r); });
+  Casus.viewer.mount(document.getElementById("app"), run, { mode: "recorded" });
+})();
+</script>
+</body>
+</html>
