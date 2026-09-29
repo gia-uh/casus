@@ -403,6 +403,27 @@ def _coords(geom: BaseGeometry) -> list:
     ]
 
 
+def _adjacency(shapes: dict[str, BaseGeometry]) -> dict[str, list[str]]:
+    """Neighbours share more than MIN_BORDER_KM of border. A land region meets a
+    sea zone along the coast by the same test, and a site meets every region its
+    disc was carved from. Squares touching at a corner share no length. Borders
+    are compared within the 0.001° grid, because two regions cut by separate
+    operations can differ by float noise along the edge they share."""
+    ids = sorted(shapes)
+    out: dict[str, list[str]] = {place: [] for place in ids}
+    for i, p in enumerate(ids):
+        for q in ids[i + 1 :]:
+            if shapes[p].distance(shapes[q]) > GRID:
+                continue
+            shared = shapes[p].boundary.intersection(shapes[q].buffer(GRID))
+            if shared.is_empty:
+                continue
+            if _local(shared, shared.centroid.y).length > MIN_BORDER_KM:
+                out[p].append(q)
+                out[q].append(p)
+    return out
+
+
 def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
     """Every place with a `region` block as a polygon and a label point, the
     theatre, the land outline inside it, the computed adjacency, and the findings.
@@ -461,7 +482,7 @@ def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
             }
             for place, geom in sorted(kept.items())
         },
-        adjacency={place: [] for place in sorted(kept)},
+        adjacency=_adjacency(kept),
         theatre=theatre,
         land=_coords(land),
         findings=findings,

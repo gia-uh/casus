@@ -345,3 +345,62 @@ def test_a_malformed_region_block_is_a_finding(block):
 def test_a_malformed_theatre_is_a_finding():
     result = _compute({"x": {"region": {"provinces": ["AA-1"]}}}, {"theatre": [5, 0, 1, 1]})
     assert _codes(result) == ["bad-theatre"]
+
+
+def test_squares_sharing_an_edge_are_neighbours():
+    result = _compute(
+        {"a": {"region": {"provinces": ["AA-2"]}}, "b": {"region": {"provinces": ["BB-1"]}}}
+    )
+    assert result.adjacency == {"a": ["b"], "b": ["a"]}
+
+
+def test_squares_touching_at_a_corner_are_not():
+    result = _compute(
+        {"a": {"region": {"provinces": ["AA-4"]}}, "b": {"region": {"provinces": ["BB-1"]}}}
+    )
+    assert result.adjacency == {"a": [], "b": []}
+
+
+def test_a_land_region_and_a_sea_zone_meeting_at_the_coast_are_neighbours():
+    result = _compute(
+        {
+            "land": {"region": {"provinces": ["AA-1"]}},
+            "gulf": {"region": {"sea": [1.0, -0.5], "reach_km": 100}},
+        }
+    )
+    assert result.adjacency["land"] == ["gulf"]
+
+
+def test_a_sea_zone_that_does_not_reach_the_coast_is_not_a_neighbour():
+    result = _compute(
+        {
+            "land": {"region": {"provinces": ["AA-1"]}},
+            "gulf": {"region": {"sea": [1.0, -1.5], "reach_km": 50}},
+        }
+    )
+    assert result.adjacency["land"] == []
+
+
+def test_a_site_borders_the_regions_its_disc_was_carved_from():
+    result = _compute(
+        {
+            "west": {"region": {"provinces": ["AA-1"]}},
+            "east": {"region": {"provinces": ["AA-2"]}},
+            "far": {"region": {"provinces": ["AA-4"]}},
+            "post": {"region": {"site": [1.0, 2.0], "radius_km": 10}},
+        }
+    )
+    assert result.adjacency["post"] == ["east", "west"]
+    assert result.adjacency["west"] == ["east", "post"]
+
+
+def test_on_the_packaged_data_havana_borders_matanzas_and_the_straits():
+    """The one test here on real borders: the classroom case, measured."""
+    places = {
+        "habana": {"region": {"provinces": ["CU-03", "CU-16"]}},
+        "matanzas": {"region": {"provinces": ["CU-04"]}},
+        "straits": {"region": {"sea": [24.2, -81.3], "reach_km": 240}},
+    }
+    result = compute(places, {"theatre": [-84.0, 21.5, -80.0, 25.5]})
+    assert result.findings == []
+    assert result.adjacency["habana"] == ["matanzas", "straits"]
