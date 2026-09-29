@@ -193,3 +193,15 @@ def test_the_digest_follows_the_region_blocks_and_the_theatre_only():
     moved = {**places, "a": {"region": {"provinces": ["AA-2"]}}}
     assert region_digest(moved) != region_digest(places)
     assert region_digest(places, [0, 0, 1, 1]) != region_digest(places)
+
+
+@pytest.mark.parametrize(
+    "places",
+    [
+        {"x": "region"},
+        {"g": {"region": {"sea": [1.0, -1.0], "reach_km": math.nan}}},
+        {"g": {"region": {"sea": [1.0, -1.0], "reach_km": math.inf}}},
+    ],
+)
+def test_a_malformed_place_is_no_region_and_does_not_raise(places):
+    assert _compute(places).places == {}

@@ -167,7 +167,8 @@ def _lonlat(place: str, value: object, findings: list) -> tuple[float, float] | 
 
 def _km_value(place: str, block: dict, key: str, default: float, findings: list):
     value = block.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+    number = isinstance(value, int | float) and not isinstance(value, bool)
+    if not number or not math.isfinite(value) or value <= 0:
         findings.append(
             RegionFinding(
                 place, "bad-region", f"{key} must be a positive number of km, not {value!r}"
@@ -387,7 +388,7 @@ def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
     findings: list[RegionFinding] = []
     specs: dict[str, _Spec] = {}
     for place in sorted(places):
-        if "region" in (places[place] or {}):
+        if isinstance(places[place], dict) and "region" in places[place]:
             spec = _parse(place, places[place]["region"], data, findings)
             if spec is not None:
                 specs[place] = spec
