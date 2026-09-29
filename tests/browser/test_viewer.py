@@ -131,3 +131,24 @@ def test_a_run_cut_before_any_prompt_says_incomplete(page, bundle_url, tmp_path)
     first_prompt = next(i for i, r in enumerate(records) if r["kind"] == "prompt")
     page.goto(bundle_url(records[:first_prompt]))
     assert _chrome(page, "incomplete") in page.locator(".finale").inner_text()
+
+
+HOSTILE = "<img src=x onerror=window.PWNED=1>"
+
+
+def test_transcript_values_never_become_markup(page, bundle_url, tmp_path):
+    records = run_records(tmp_path)
+    header = records[0]
+    header["seed"], header["turns"] = HOSTILE, HOSTILE
+    places = header["scenario"]["places"]
+    somewhere = next(p for p in places.values() if "lat" in p.get("attrs", {}))
+    places['x"><img src=x onerror=window.PWNED=1>'] = {
+        "name": "x", "attrs": dict(somewhere["attrs"]), "adjacency": []
+    }
+    next(r for r in records if r["kind"] == "action")["action"]["intensity"] = HOSTILE
+    page.goto(bundle_url(records))
+    for name in ("thinking", "declaring", "resolving", "dispatch"):
+        step_to(page, 1, name)
+        page.locator("#stage [data-place]").last.hover(force=True)
+    page.wait_for_timeout(200)
+    assert page.evaluate("window.PWNED") is None

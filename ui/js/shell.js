@@ -20,12 +20,12 @@
         <div class="hero"><h1>cas<i>us</i></h1></div>
         <section class="shelf"><h2>${C.i18n.t("scenarios")}</h2><div class="row">${scenarios.map((s) => `
           <div class="card" data-scenario="${esc(s.dir)}"><h3>${esc(s.name)}</h3>
-            <div class="meta">${s.actors ?? "?"} · ${s.places ?? "?"} · ${s.turns ?? "?"}</div><p>${esc(s.description || "")}</p>
+            <div class="meta">${esc(s.actors ?? "?")} · ${esc(s.places ?? "?")} · ${esc(s.turns ?? "?")}</div><p>${esc(s.description || "")}</p>
             <div class="acts"><span class="badge ${s.valid ? "ok" : "bad"}">${s.valid ? "✓" : "✗ " + esc(s.findings[0] || "")}</span></div>
             <div class="acts" data-actions="scenario"></div></div>`).join("")}</div></section>
         <section class="shelf"><h2>${C.i18n.t("studies")}</h2><div class="row">${Object.entries(byScenario).map(([name, rs]) => `
           <div class="card" data-study="${esc(name)}"><h3>${esc(name)} <span class="meta">· ${rs.length}</span></h3>
-            <div class="runlist">${rs.map((r) => `<div class="runrow"><div class="meta">${esc(r.id)}<br>${r.turns_done}/${r.turns_planned} · ${esc(r.status)}</div>
+            <div class="runlist">${rs.map((r) => `<div class="runrow"><div class="meta">${esc(r.id)}<br>${esc(r.turns_done)}/${esc(r.turns_planned)} · ${esc(r.status)}</div>
               <button class="btn small" data-run="${esc(r.id)}">${C.i18n.t("view")} ▸</button></div>`).join("")}</div>
             <div class="acts" data-actions="study"></div></div>`).join("")}</div></section>
       </div>`;

@@ -65,7 +65,7 @@
       const st = (snap.places || {})[id] || { owner: p.owner, attrs: p.attrs || {} };
       const r = (0.8 + Math.sqrt(Math.max(strengthAt(run, snap, id), 0)) * 0.28) * S * (opts.rscale || 1);
       const fill = st.owner ? colour(run, st.owner) : "#5a626c";
-      if (cid) o += `<g class="pl" data-place="${id}">`;
+      if (cid) o += `<g class="pl" data-place="${esc(id)}">`;
       const v = ring ? Number((st.attrs || {})[ring] || 0) : 0;
       if (v > 0) {
         const rr = r + 0.9 * S, circ = 2 * Math.PI * rr;

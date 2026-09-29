@@ -25,7 +25,7 @@
     root.innerHTML = `
       <div class="visor">
         <div class="vhead">
-          <div><div class="scn">${esc(run.header ? run.header.name : "")} · ${t("seed")} ${run.header ? run.header.seed : ""}</div><div class="day" id="vday"></div></div>
+          <div><div class="scn">${esc(run.header ? run.header.name : "")} · ${t("seed")} ${esc(run.header ? run.header.seed : "")}</div><div class="day" id="vday"></div></div>
           <div class="beats" id="vbeats">${BEATS.map((b) => `<div class="beat">${t(b)}</div>`).join("")}</div>
           <div class="sp"></div><div class="ready" id="vready"></div>
           <div>${live ? `<span class="livetag"><span class="livedot"></span>${t("live")}</span>` : `<span class="rectag">● ${t("recorded")}</span>`}</div>
@@ -42,7 +42,7 @@
     const T = () => turns()[V.ti];
     function header() {
       const cur = T();
-      $("#vday").innerHTML = cur ? `${t("day")} ${pad2(cur.turn)}<small>/ ${run.header ? run.header.turns : ""}</small>` : "";
+      $("#vday").innerHTML = cur ? `${t("day")} ${esc(pad2(cur.turn))}<small>/ ${esc(run.header ? run.header.turns : "")}</small>` : "";
       [...$("#vbeats").children].forEach((el, i) => { el.className = "beat" + (i === V.beat ? " on" : i < V.beat ? " past" : ""); });
       $("#vdots").innerHTML = turns().map((x, i) => `<div class="dot${i === V.ti ? " cur" : i < V.ti ? " done" : ""}" data-i="${i}"></div>`).join("");
       $("#bplay").textContent = V.auto ? t("auto_on") : t("auto_off");
@@ -134,7 +134,7 @@
       for (const p of V.panes) {
         const el = document.getElementById("pane-" + p.id); if (!el || !p.d) continue;
         el.classList.add("revealed");
-        el.querySelector(".chips").innerHTML = p.d.actions.map((a, i) => `<div class="chip" style="animation-delay:${actors.indexOf(p.id) * 0.12 + i * 0.08}s">${L(a.type)}${a.place ? `<span class="tgt">▸ ${L(a.place)}</span>` : a.target ? `<span class="tgt">▸ ${L(a.target)}</span>` : ""}<span class="int">${a.intensity ? "×" + a.intensity : ""}</span></div>`).join("");
+        el.querySelector(".chips").innerHTML = p.d.actions.map((a, i) => `<div class="chip" style="animation-delay:${actors.indexOf(p.id) * 0.12 + i * 0.08}s">${L(a.type)}${a.place ? `<span class="tgt">▸ ${L(a.place)}</span>` : a.target ? `<span class="tgt">▸ ${L(a.target)}</span>` : ""}<span class="int">${a.intensity ? "×" + esc(a.intensity) : ""}</span></div>`).join("");
       }
       const declared = C.records.declarations(T());
       const targets = declared.flatMap((d) => d.actions.filter((a) => a.place).map((a) => ({ actor: d.actor, place: a.place })));
@@ -179,7 +179,7 @@
           ${run.error && run.error.turn === cur.turn ? `<div class="banner">${t("failed")} ${esc(run.error.error)}</div>` : ""}
         </div>`;
       paint("#bigmap", cur.before, { targets, aspect: aspect(), slice: true, font: 1.25, edges: true, rscale: 0.5, ctx: mapCtx({ actions: declared }) });
-      $("#vready").innerHTML = `<b>${cur.mutations}</b> ${t("mutations")}`;
+      $("#vready").innerHTML = `<b>${esc(cur.mutations)}</b> ${t("mutations")}`;
     }
     function commandFrame() {
       const cur = T(), k = Math.floor(V.clock / 520);
@@ -217,7 +217,7 @@
       const lines = declared.map((d) => `<li><b>${L(d.actor)}</b>: ${d.actions.map((a) => L(a.type) + (a.place ? " · " + L(a.place) : "")).join(", ")}</li>`).join("");
       $("#stage").insertAdjacentHTML("beforeend", `
         <div class="dispatch" id="dispatch">
-          <div class="kick"><span>${t("dispatch_of")} ${cur.turn}</span><span>${esc(run.header ? run.header.name : "")}</span></div>
+          <div class="kick"><span>${t("dispatch_of")} ${esc(cur.turn)}</span><span>${esc(run.header ? run.header.name : "")}</span></div>
           <h2>${esc(cur.narrative || t("no_dispatch"))}</h2><ul>${lines}</ul>
         </div>`);
     }

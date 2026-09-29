@@ -49,3 +49,22 @@ def test_a_run_that_cannot_be_opened_says_so(quiet_page, app_url, runs_dir, rout
     assert page.locator("[data-scenario]").count() == 0
     assert not page.uncaught
 
+
+
+HOSTILE = "<img src=x onerror=window.PWNED=1>"
+
+
+def test_the_home_escapes_every_value_it_is_sent(page, app_url):
+    """Scenario YAML and run files are not trusted markup, even when the server
+    would have cleaned them: this feeds the shell hostile values directly."""
+    card = {"name": "n", "dir": "d", "actors": HOSTILE, "places": HOSTILE, "turns": HOSTILE,
+            "description": "", "valid": True, "findings": []}
+    run = {"id": "r", "scenario": "n", "seed": 1, "turns_planned": HOSTILE,
+           "turns_done": HOSTILE, "status": "complete", "path": ""}
+    page.route("**/api/scenarios", lambda route: route.fulfill(json=[card]))
+    page.route("**/api/runs", lambda route: route.fulfill(json=[run]))
+    page.goto(app_url)
+    page.wait_for_selector("[data-scenario]")
+    page.wait_for_timeout(200)
+    assert page.evaluate("window.PWNED") is None
+    assert HOSTILE in page.locator("[data-scenario] .meta").inner_text()

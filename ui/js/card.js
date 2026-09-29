@@ -45,12 +45,12 @@
     let aimed = "";
     if (c.turn) {
       const list = (c.actions || []).flatMap((dcl) => dcl.actions.filter((a) => a.place === placeId).map((a) => ({ actor: dcl.actor, a })));
-      aimed = `<div class="tsec">${t("aimed_here")} ${c.turn}</div>` + (c.sealed
+      aimed = `<div class="tsec">${t("aimed_here")} ${esc(c.turn)}</div>` + (c.sealed
         ? `<div class="none">${t("still_sealed")}</div>`
-        : list.length ? list.map((x) => `<div class="drow"><b style="color:${C.map.colour(run, x.actor)}">${L(x.actor)}</b> · ${L(x.a.type)}${x.a.intensity ? " ×" + x.a.intensity : ""}</div>`).join("")
+        : list.length ? list.map((x) => `<div class="drow"><b style="color:${C.map.colour(run, x.actor)}">${L(x.actor)}</b> · ${L(x.a.type)}${x.a.intensity ? " ×" + esc(x.a.intensity) : ""}</div>`).join("")
         : `<div class="none">${t("nobody_aimed")}</div>`);
     }
-    const when = c.prev ? `${t("after")} ${c.turn}` : c.turn ? `${t("at_start")} ${c.turn}` : t("initial");
+    const when = esc(c.prev ? `${t("after")} ${c.turn}` : c.turn ? `${t("at_start")} ${c.turn}` : t("initial"));
     const holder = st.owner ? `${t("controlled_by")} ${L(st.owner)}` : t("open_water");
     return `<div class="th"><b>${L(placeId)}</b><span class="own" style="color:${st.owner ? C.map.colour(run, st.owner) : "#8a95a5"}">${holder}</span></div>
       <div class="tsub">${when}</div>${attrs}
