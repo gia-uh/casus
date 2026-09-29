@@ -25,7 +25,7 @@
     root.innerHTML = `
       <div class="visor">
         <div class="vhead">
-          <div><div class="scn">${esc(run.header ? run.header.name : "")} · seed ${run.header ? run.header.seed : ""}</div><div class="day" id="vday"></div></div>
+          <div><div class="scn">${esc(run.header ? run.header.name : "")} · ${t("seed")} ${run.header ? run.header.seed : ""}</div><div class="day" id="vday"></div></div>
           <div class="beats" id="vbeats">${BEATS.map((b) => `<div class="beat">${t(b)}</div>`).join("")}</div>
           <div class="sp"></div><div class="ready" id="vready"></div>
           <div>${live ? `<span class="livetag"><span class="livedot"></span>${t("live")}</span>` : `<span class="rectag">● ${t("recorded")}</span>`}</div>
@@ -58,6 +58,9 @@
 
     // ---- beats 0-1: the war room ----
     function mapCtx(extra) { return Object.assign({ turn: T().turn }, extra); }
+    // A run with no coordinates has no map: map.draw swaps the svg for a
+    // .nomap div, so a later redraw finds nothing and must skip it.
+    function paint(sel, snap, opts) { const svg = $(sel); if (svg) C.map.draw(svg, run, snap, opts); }
     function warRoom() {
       const cur = T(), r = rng(cur.turn * 7919 + 17), declared = C.records.declarations(cur);
       V.panes = actors.map((id) => {
@@ -83,7 +86,7 @@
           </div>
           ${cur.complete ? "" : `<div class="banner">${t("incomplete")}</div>`}
         </div>`;
-      C.map.draw($("#boardmap"), run, cur.before, { font: 2.2, ctx: mapCtx({ sealed: true }) });
+      paint("#boardmap", cur.before, { font: 2.2, ctx: mapCtx({ sealed: true }) });
     }
     function ladderHTML(snap) {
       const lad = run.scenario.display.ladder, rungs = lad[lang] || lad.en || [];
@@ -135,8 +138,7 @@
       }
       const declared = C.records.declarations(T());
       const targets = declared.flatMap((d) => d.actions.filter((a) => a.place).map((a) => ({ actor: d.actor, place: a.place })));
-      const svg = $("#boardmap");
-      if (svg) C.map.draw(svg, run, T().before, { targets, font: 2.2, ctx: mapCtx({ actions: declared }) });
+      paint("#boardmap", T().before, { targets, font: 2.2, ctx: mapCtx({ actions: declared }) });
       $("#vready").innerHTML = `<b>${pad2(declared.length)}</b> / ${pad2(V.panes.length)} ${t("declared_count")}`;
     }
 
@@ -156,6 +158,12 @@
       }
       return out.sort((x, y) => y.w - x.w).slice(0, 6);
     }
+    // The five phases are the engine's, so their names are chrome; a scenario
+    // may still rename one through display.labels.
+    function phaseLabel(p) {
+      const own = (((run.scenario.display || {}).labels || {})[lang] || {})[p];
+      return esc(own ? String(own) : t(p));
+    }
     function aspect() { const s = $("#stage"); return s ? s.clientWidth / Math.max(300, s.clientHeight) : 2; }
     function commandPost() {
       const cur = T(), declared = C.records.declarations(cur);
@@ -164,13 +172,13 @@
       $("#stage").innerHTML = `
         <div class="cmd">
           <div class="bigmap"><svg id="bigmap"></svg></div><div class="vign"></div>
-          <div class="phases" id="phases">${PHASES.map((p) => `<div class="phase">${L(p)}</div>`).join("")}<div class="ledger" id="ledger"></div></div>
+          <div class="phases" id="phases">${PHASES.map((p) => `<div class="phase">${phaseLabel(p)}</div>`).join("")}<div class="ledger" id="ledger"></div></div>
           <div class="deltas" id="deltas"></div>
           <div class="hud" style="grid-template-columns:repeat(${Math.max(1, actors.length)},1fr)">${actors.map((id) => { const d = declared.find((x) => x.actor === id); return `<div class="hudc" style="--ac:${C.map.colour(run, id)}"><b>${L(id)}</b>${d ? d.actions.map((a) => `<div class="a">${L(a.type)}${a.place ? " ▸ " + L(a.place) : ""}</div>`).join("") : ""}</div>`; }).join("")}</div>
           ${cur.complete ? "" : `<div class="banner">${t("incomplete")}</div>`}
           ${run.error && run.error.turn === cur.turn ? `<div class="banner">${t("failed")} ${esc(run.error.error)}</div>` : ""}
         </div>`;
-      C.map.draw($("#bigmap"), run, cur.before, { targets, aspect: aspect(), slice: true, font: 1.25, edges: true, rscale: 0.5, ctx: mapCtx({ actions: declared }) });
+      paint("#bigmap", cur.before, { targets, aspect: aspect(), slice: true, font: 1.25, edges: true, rscale: 0.5, ctx: mapCtx({ actions: declared }) });
       $("#vready").innerHTML = `<b>${cur.mutations}</b> ${t("mutations")}`;
     }
     function commandFrame() {
@@ -180,7 +188,7 @@
         V.cmd.swapped = true;
         $("#ledger").textContent = `${cur.mutations} ${t("ledger")}`;
         if (cur.after) {
-          C.map.draw($("#bigmap"), run, cur.after, { aspect: aspect(), slice: true, font: 1.25, edges: true, rscale: 0.5,
+          paint("#bigmap", cur.after, { aspect: aspect(), slice: true, font: 1.25, edges: true, rscale: 0.5,
             ctx: mapCtx({ prev: cur.before, actions: C.records.declarations(cur) }) });
           setTimeout(C.card.refresh);
         }
