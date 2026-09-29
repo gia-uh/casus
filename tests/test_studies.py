@@ -47,3 +47,34 @@ def test_files_that_are_not_transcripts_are_skipped(tmp_path):
     (tmp_path / "empty.jsonl").write_text("")
     (tmp_path / "array.jsonl").write_text("[1, 2]\n")
     assert [i.id for i in studies.list_runs(tmp_path)] == ["smoke-1"]
+
+
+def test_a_half_written_last_line_is_read_as_the_end_of_the_file(tmp_path):
+    path = _run(tmp_path, seed=5, turns=2)
+    lines = path.read_text().splitlines()
+    last_state = max(i for i, line in enumerate(lines) if json.loads(line)["kind"] == "state")
+    path.write_text("\n".join(lines[:last_state]) + '\n{"kind":"sta')
+    [info] = studies.list_runs(tmp_path)
+    assert (info.status, info.turns_done) == ("incomplete", 1)
+
+
+def test_an_error_before_a_half_written_last_line_is_still_failed(tmp_path):
+    path = _run(tmp_path, seed=6, turns=1)
+    with path.open("a") as fh:
+        fh.write(json.dumps({"kind": "error", "turn": 2, "error": "boom"}) + '\n{"kind":"sta')
+    [info] = studies.list_runs(tmp_path)
+    assert info.status == "failed"
+
+
+def test_an_undecodable_line_before_the_last_skips_the_file(tmp_path):
+    path = _run(tmp_path, seed=8, turns=2)
+    lines = path.read_text().splitlines()
+    path.write_text("\n".join([lines[0], '{"kind":"sta', *lines[1:]]) + "\n")
+    assert studies.list_runs(tmp_path) == []
+
+
+def test_a_header_with_a_malformed_number_is_skipped(tmp_path):
+    _run(tmp_path, seed=2)
+    (tmp_path / "null-seed.jsonl").write_text('{"kind":"scenario","seed":null}\n')
+    (tmp_path / "text-seed.jsonl").write_text('{"kind":"scenario","seed":"x"}\n')
+    assert [i.id for i in studies.list_runs(tmp_path)] == ["smoke-2"]

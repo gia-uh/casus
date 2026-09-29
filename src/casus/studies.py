@@ -29,13 +29,21 @@ class RunInfo:
 
 
 def _scan(path: pathlib.Path) -> RunInfo | None:
-    header, states, failed, ended = None, 0, False, False
+    header, states, failed, ended, torn = None, 0, False, False, False
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
                 if not line.strip():
                     continue
-                record = json.loads(line)
+                if torn:
+                    return None
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    # A half-written last line is the end of the file; if
+                    # another line follows it, the file is not a transcript.
+                    torn = True
+                    continue
                 if not isinstance(record, dict):
                     return None
                 kind = record.get("kind")
@@ -49,17 +57,21 @@ def _scan(path: pathlib.Path) -> RunInfo | None:
                     failed = True
                 elif kind == "end":
                     ended = True
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError):
         return None
     if header is None:
         return None
-    status: Status = "failed" if failed else "complete" if ended else "incomplete"
+    status: Status = "failed" if failed else "complete" if ended and not torn else "incomplete"
+    try:
+        seed, turns_planned = int(header.get("seed", 0)), int(header.get("turns", 0))
+    except (TypeError, ValueError):
+        return None
     return RunInfo(
         id=path.stem,
         path=path,
         scenario=str(header.get("name", "")),
-        seed=int(header.get("seed", 0)),
-        turns_planned=int(header.get("turns", 0)),
+        seed=seed,
+        turns_planned=turns_planned,
         turns_done=max(states - 1, 0),
         status=status,
     )
