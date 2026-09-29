@@ -1,6 +1,6 @@
 ---
 date: 2026-09-28
-status: draft, awaiting review
+status: "slice 1 implemented (PR #7); slices 3-5 pending"
 issue: https://github.com/gia-uh/casus/issues/5
 scope: "the casus app: a shell, a game viewer for live and recorded runs, the three modes as screens, settings, and the server behind them"
 extends: "the v2 design, section 'The interface' (vault/Atlas/Architecture/2026-09-28-casus-general-conflict-simulator-design.md)"
