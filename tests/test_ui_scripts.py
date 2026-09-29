@@ -66,3 +66,30 @@ def test_a_run_cut_before_its_last_state_leaves_that_turn_incomplete(tmp_path):
 def test_labels_fall_back_from_display_to_names_to_ids(tmp_path):
     model = _model(_records(tmp_path), labels=["BLUE", "border", "no_such_thing"])
     assert model["labels"] == ["Blue", "The Border", "no such thing"]
+
+
+def _card(records, place, sealed=False):
+    payload = json.dumps({"records": records, "labels": [], "card": place, "sealed": sealed})
+    done = subprocess.run(
+        [NODE, str(HARNESS), "i18n.js,records.js,map.js,card.js"],
+        input=payload, capture_output=True, text=True, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)["card"]
+
+
+def test_the_card_names_the_place_its_holder_and_its_neighbours(tmp_path):
+    html = _card(_records(tmp_path), "border")
+    assert "The Border" in html
+    assert "Red" in html
+    assert "Blue Home" in html and "Red Home" in html
+
+
+def test_a_sealed_turn_does_not_reveal_what_was_aimed_at_the_place(tmp_path):
+    html = _card(_records(tmp_path), "border", sealed=True)
+    assert "the declarations are still sealed" in html
+
+
+def test_the_card_shows_before_and_after_for_card_attributes(tmp_path):
+    html = _card(_records(tmp_path), "border")
+    assert "infra" in html

@@ -25,4 +25,11 @@ const out = {
   error: run.error && run.error.error,
   ended: run.ended,
 };
+if (input.card) {
+  const t = run.playable()[0];
+  out.card = Casus.card.html(run, input.card, {
+    snapshot: t.after || t.before, prev: t.after ? t.before : null, turn: t.turn,
+    actions: Casus.records.declarations(t), sealed: !!input.sealed,
+  });
+}
 process.stdout.write(JSON.stringify(out));
