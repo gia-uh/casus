@@ -42,7 +42,7 @@ def _verdict(directory: str, stamp: float) -> tuple[bool, tuple[str, ...]]:
 def _card(directory: pathlib.Path) -> dict:
     """One scenario on the home shelf. The manifest is read on its own, so a
     scenario that fails to load still shows up, marked invalid."""
-    stamp = max(p.stat().st_mtime for p in directory.iterdir() if p.is_file())
+    stamp = max((p.stat().st_mtime for p in directory.iterdir() if p.is_file()), default=0)
     valid, findings = _verdict(str(directory), stamp)
     try:
         data = yaml.safe_load((directory / "scenario.yaml").read_text(encoding="utf-8"))

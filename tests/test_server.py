@@ -117,6 +117,23 @@ def test_a_broken_scenario_gets_a_card_and_does_not_blank_the_list(tmp_path, run
     assert by_dir["smoke"]["valid"] is True
 
 
+@pytest.mark.parametrize("breakage", ["directory", "dangling symlink"])
+def test_a_scenario_with_no_regular_files_still_gets_a_card(tmp_path, runs, breakage):
+    scenarios = tmp_path / "scenarios"
+    shutil.copytree(SCENARIOS / "smoke", scenarios / "smoke")
+    broken = scenarios / "broken" / "scenario.yaml"
+    broken.parent.mkdir()
+    if breakage == "directory":
+        broken.mkdir()
+    else:
+        broken.symlink_to(tmp_path / "nowhere.yaml")
+    client = TestClient(create_app(scenarios_dir=scenarios, runs_dir=runs))
+    response = client.get("/api/scenarios")
+    assert response.status_code == 200
+    by_dir = {s["dir"]: s for s in response.json()}
+    assert by_dir["broken"]["valid"] is False and by_dir["smoke"]["valid"] is True
+
+
 @pytest.mark.parametrize(
     ("turns", "shown"), [(4, 4), ("<img src=x onerror=window.PWNED=1>", None), (True, None)]
 )
