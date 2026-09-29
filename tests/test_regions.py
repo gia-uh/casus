@@ -504,3 +504,50 @@ def test_on_the_packaged_data_havana_borders_matanzas_and_the_straits():
     result = compute(places, {"theatre": [-84.0, 21.5, -80.0, 25.5]})
     assert result.findings == []
     assert result.adjacency["habana"] == ["matanzas", "straits"]
+
+
+def _at_23n(width: float) -> MapData:
+    """Two 2° squares at 23°N, the Caribbean's latitude. The north one sits east of
+    the south one, so the pair share the last `width` degrees of the 23rd parallel
+    and nothing else."""
+    cells = {"SS-1": box(0, 21, 2, 23), "NN-1": box(2 - width, 23, 4 - width, 25)}
+    return MapData(
+        version="at-23n",
+        geoms=cells,
+        names={code: f"Square {code}" for code in cells},
+        country_of={code: code[:2] for code in cells},
+        countries={"SS": "South", "NN": "North"},
+    )
+
+
+@pytest.mark.parametrize(("north", "south"), [("a", "b"), ("b", "a")])
+@pytest.mark.parametrize(("width", "neighbours"), [(0.009, False), (0.013, True)])
+def test_a_border_is_measured_in_km_at_its_latitude(width, neighbours, north, south):
+    """0.009° of longitude at 23°N is 0.92 km: no border. Without the cos(lat) it
+    would be 1.002 km, and measured with the stubs where each boundary leaves the
+    shared edge it would be 1.14 km. 0.013° is 1.33 km: a border, though it is only
+    0.013 in degrees. Either id may sort first."""
+    places = {
+        north: {"region": {"provinces": ["NN-1"]}},
+        south: {"region": {"provinces": ["SS-1"]}},
+    }
+    result = compute(places, {"theatre": [-1, 20, 5, 26]}, mapdata=_at_23n(width))
+    assert result.findings == []
+    expected = {"a": ["b"], "b": ["a"]} if neighbours else {"a": [], "b": []}
+    assert result.adjacency == expected
+
+
+def test_a_split_hands_on_only_areas():
+    """The L of AA-1, AA-2 and AA-3 split between seeds west and east of x = 2: the
+    east cell also meets the L along its inner edge, x = 2 from y = 2 to 4, and
+    that line is not part of the east region. What the site carving and the
+    adjacency after the split receive is polygons only."""
+    base = ("provinces", "AA-1", "AA-2", "AA-3")
+    specs = {
+        "west": regions._Spec("provinces", base, (1.0, 1.0)),
+        "east": regions._Spec("provinces", base, (3.0, 1.0)),
+    }
+    area = shapely.union_all([CELLS[code] for code in base[1:]])
+    split = regions._split(["west", "east"], specs, area, box(*THEATRE["theatre"]), [])
+    assert {p: g.geom_type for p, g in split.items()} == {"west": "Polygon", "east": "Polygon"}
+    assert split["east"].equals(CELLS["AA-2"])

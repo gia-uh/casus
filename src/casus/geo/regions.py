@@ -301,7 +301,8 @@ def _theatre(specs, bases, display, findings) -> tuple[float, float, float, floa
 
 def _split(members, specs, area, frame, findings) -> dict[str, BaseGeometry]:
     """One base among the places on it: all of it for one place, Voronoi cells
-    among their seeds for several."""
+    among their seeds for several. Only the areas: a cell can also meet the base
+    along a line, and what comes after the split handles polygons only."""
     if len(members) == 1:
         return {members[0]: area}
     seedless = [p for p in members if specs[p].seed is None]
@@ -326,7 +327,7 @@ def _split(members, specs, area, frame, findings) -> dict[str, BaseGeometry]:
     seeds = MultiPoint([specs[p].seed for p in members])
     cells = shapely.voronoi_polygons(seeds, extend_to=frame, ordered=True)
     return {
-        p: cell.intersection(area)
+        p: _polygonal(cell.intersection(area))
         for p, cell in zip(members, shapely.get_parts(cells), strict=True)
     }
 
@@ -427,16 +428,20 @@ def _coords(geom: BaseGeometry) -> list:
 def _adjacency(shapes: dict[str, BaseGeometry]) -> dict[str, list[str]]:
     """Neighbours share more than MIN_BORDER_KM of border. A land region meets a
     sea zone along the coast by the same test, and a site meets every region its
-    disc was carved from. Squares touching at a corner share no length. Borders
-    are compared within the 0.001° grid, because two regions cut by separate
-    operations can differ by float noise along the edge they share."""
+    disc was carved from. The border is the intersection of the two boundaries,
+    noded on the 0.001° grid regions.json is written on: two regions cut by
+    separate operations can differ by float noise along the edge they share, and
+    on the grid that edge is one line, measured end to end with nothing added.
+    Squares touching at a corner meet in a point, which has no length."""
     ids = sorted(shapes)
     out: dict[str, list[str]] = {place: [] for place in ids}
     for i, p in enumerate(ids):
         for q in ids[i + 1 :]:
             if shapes[p].distance(shapes[q]) > GRID:
                 continue
-            shared = shapes[p].boundary.intersection(shapes[q].buffer(GRID))
+            shared = shapely.intersection(
+                shapes[p].boundary, shapes[q].boundary, grid_size=GRID
+            )
             if shared.is_empty:
                 continue
             if _local(shared, shared.centroid.y).length > MIN_BORDER_KM:
