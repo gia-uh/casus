@@ -7,7 +7,13 @@ from scenariopaths import SCENARIOS
 
 from casus import cli
 from casus.geo.regions import region_digest
-from helpers import CUBA_BLOCKS, smoke_with_regions
+from helpers import (
+    CUBA_BLOCKS,
+    SMOKE_REGION_BLOCKS,
+    SMOKE_REGION_GRAPH,
+    smoke_with_regions,
+    write_regions,
+)
 
 
 def test_validate_passes_a_clean_scenario(capsys):
@@ -60,3 +66,16 @@ def test_regions_with_findings_writes_nothing_and_fails(tmp_path, capsys):
 def test_regions_on_a_scenario_without_region_blocks_says_so(capsys):
     assert cli.main(["regions", str(SCENARIOS / "smoke")]) == 2
     assert "no region blocks" in capsys.readouterr().err
+
+
+def test_validate_prints_an_adjacency_warning_without_failing(tmp_path, capsys):
+    def listed(data):
+        data["places"]["r-home"]["adjacency"] = ["border", "b-home"]
+
+    directory = smoke_with_regions(
+        tmp_path, SMOKE_REGION_BLOCKS, keep_lists=("r-home",), change=listed
+    )
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    assert cli.main(["validate", str(directory), "--turns", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "warning: " in out and "adjacency-differs" in out

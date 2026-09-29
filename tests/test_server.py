@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from casus import bundle, engine
 from casus.scenario import Scenario
 from casus.server.app import create_app
-from helpers import FakeEngine
+from helpers import SMOKE_REGION_BLOCKS, FakeEngine, smoke_with_regions
 
 ROOT = pathlib.Path(__file__).parent.parent
 SCENARIOS = ROOT / "scenarios"
@@ -160,3 +160,13 @@ def test_a_symlink_out_of_the_runs_directory_is_neither_listed_nor_served(client
     (runs / "evil.jsonl").symlink_to(outside)
     assert [r["id"] for r in client.get("/api/runs").json()] == ["smoke-5"]
     assert client.get("/api/runs/evil").status_code == 404
+
+
+def test_a_scenario_with_a_stale_map_is_listed_invalid_with_the_command(tmp_path, runs):
+    scenarios = tmp_path / "scenarios"
+    scenarios.mkdir()
+    directory = smoke_with_regions(scenarios, SMOKE_REGION_BLOCKS)
+    client = TestClient(create_app(scenarios_dir=scenarios, runs_dir=runs))
+    [card] = client.get("/api/scenarios").json()
+    assert card["valid"] is False
+    assert f"casus regions {directory}" in card["findings"][0]

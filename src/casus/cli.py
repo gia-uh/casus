@@ -125,13 +125,18 @@ def _validate(args) -> int:
     from .scenario import ScenarioInvalid
     from .validate.invariants import check_invariants
 
+    warnings: tuple = ()
     try:
-        findings = check_invariants(Scenario.load(args.scenario), turns=args.turns)
+        scenario = Scenario.load(args.scenario)
+        warnings = scenario.warnings
+        findings = check_invariants(scenario, turns=args.turns)
     except ScenarioInvalid as exc:
         findings = exc.findings
     except (ScenarioError, OSError) as exc:
         print(f"casus: {exc}", file=sys.stderr)
         return 2
+    for warning in warnings:
+        print(f"  warning: {warning}")
     for finding in findings:
         print(f"  {finding}")
     count = f"{len(findings)} finding(s)" if findings else "no findings"
