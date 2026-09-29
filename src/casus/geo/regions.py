@@ -357,6 +357,29 @@ def _kept(shapes, specs, findings) -> dict[str, BaseGeometry]:
     return kept
 
 
+def _latlon(place: str, spec: dict, geom: BaseGeometry, findings: list) -> None:
+    """A place that also carries lat/lon attributes must put them on or near its
+    region: no farther away than the region's own size."""
+    attrs = spec.get("attrs") or {}
+    lat, lon = attrs.get("lat"), attrs.get("lon")
+    for value in (lat, lon):
+        number = isinstance(value, int | float) and not isinstance(value, bool)
+        if not number or not math.isfinite(value):
+            return
+    local = _local(geom, lat)
+    size = math.sqrt(local.area / math.pi)
+    off = local.distance(_local(Point(lon, lat), lat))
+    if off > size:
+        findings.append(
+            RegionFinding(
+                place,
+                "latlon-disagrees",
+                f"lat/lon [{lat}, {lon}] is {off:.0f} km from its region, more than the "
+                f"region's own size of {size:.0f} km (the radius of a circle of its area)",
+            )
+        )
+
+
 def _label(spec: _Spec, geom: BaseGeometry) -> tuple[float, float]:
     """The seed when the region still holds it, else the pole of inaccessibility
     of its largest part: a point inside, away from the border."""
@@ -426,6 +449,8 @@ def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
         if spec.kind == "site":
             _carve(place, spec, shapes, sea, frame, findings)
     kept = _kept(shapes, specs, findings)
+    for place, geom in kept.items():
+        _latlon(place, places[place] or {}, geom, findings)
 
     return Regions(
         places={

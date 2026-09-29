@@ -3,6 +3,7 @@ on real borders. One test at the end reads the packaged data."""
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 
@@ -205,3 +206,142 @@ def test_the_digest_follows_the_region_blocks_and_the_theatre_only():
 )
 def test_a_malformed_place_is_no_region_and_does_not_raise(places):
     assert _compute(places).places == {}
+
+
+def _codes(result: regions.Regions) -> list[str]:
+    return [f.code for f in result.findings]
+
+
+def test_an_unknown_province_names_the_provinces_of_its_country():
+    result = _compute({"x": {"region": {"provinces": ["AA-9"]}}})
+    [finding] = result.findings
+    assert (finding.place, finding.code) == ("x", "unknown-province")
+    assert "AA-4 (Square AA-4)" in finding.message
+    assert "x" not in result.places
+
+
+def test_an_unknown_country_names_the_closest_codes():
+    [finding] = _compute({"x": {"region": {"country": "AB"}}}).findings
+    assert finding.code == "unknown-country"
+    assert "AA (Alpha)" in finding.message
+
+
+def test_a_seed_outside_its_own_base_is_a_finding():
+    result = _compute({"x": {"region": {"provinces": ["AA-1"], "seed": [3.0, 3.0]}}})
+    assert _codes(result) == ["seed-outside-base"]
+    assert result.places == {}
+
+
+def test_two_places_on_one_base_need_a_seed_each():
+    result = _compute(
+        {
+            "x": {"region": {"provinces": ["AA-2"], "seed": [1.0, 3.0]}},
+            "y": {"region": {"provinces": ["AA-2"]}},
+        }
+    )
+    assert [(f.place, f.code) for f in result.findings] == [("y", "missing-seed")]
+    assert result.places == {}
+
+
+@pytest.mark.parametrize("offset", [0.0, 1e-9, 0.005])
+def test_near_coincident_seeds_are_a_finding(offset):
+    """GEOS raises on coincident seeds and returns cells that do not split the base
+    for nearly coincident ones. Either way the answer is a finding: never an
+    exception, never an empty polygon. 0.005° is about 0.56 km here."""
+    result = _compute(
+        {
+            "x": {"region": {"provinces": ["AA-1"], "seed": [1.0, 1.0]}},
+            "y": {"region": {"provinces": ["AA-1"], "seed": [1.0, 1.0 + offset]}},
+            "z": {"region": {"provinces": ["AA-4"]}},
+        }
+    )
+    assert _codes(result) == ["seeds-too-close"]
+    assert set(result.places) == {"z"}
+    assert all(p["polygon"] for p in result.places.values())
+
+
+def test_seed_on_a_border_belongs_to_one_region():
+    """A seed exactly on the border between two bases is on its own base (the
+    boundary counts), the regions around it never overlap, and a site on that
+    border is the one region that holds the point."""
+    result = _compute(
+        {
+            "west-a": {"region": {"provinces": ["AA-1"], "seed": [1.0, 2.0]}},
+            "west-b": {"region": {"provinces": ["AA-1"], "seed": [1.0, 0.5]}},
+            "east": {"region": {"provinces": ["AA-2"]}},
+            "post": {"region": {"site": [1.0, 2.0], "radius_km": 10}},
+        }
+    )
+    assert result.findings == []
+    shapes = {p: _shape(result, p) for p in result.places}
+    assert set(shapes) == {"west-a", "west-b", "east", "post"}
+    assert all(not s.is_empty for s in shapes.values())
+    for p, q in itertools.combinations(shapes, 2):
+        assert shapes[p].intersection(shapes[q]).area == pytest.approx(0.0, abs=1e-9), (p, q)
+    assert [p for p, s in shapes.items() if s.contains(Point(2.0, 1.0))] == ["post"]
+    assert shapes["west-a"].contains(Point(result.places["west-a"]["label"]))
+
+
+def test_a_region_carved_away_entirely_is_a_finding():
+    result = _compute(
+        {
+            "land": {"region": {"provinces": ["AA-1"]}},
+            "base": {"region": {"site": [1.0, 1.0], "radius_km": 300}},
+        }
+    )
+    assert [(f.place, f.code) for f in result.findings] == [("land", "empty-region")]
+    assert set(result.places) == {"base"}
+
+
+def test_a_region_smaller_than_a_site_is_a_finding():
+    result = _compute({"x": {"region": {"sea": [1.0, -1.0], "reach_km": 5}}})
+    assert _codes(result) == ["region-too-small"]
+
+
+def test_a_site_in_no_region_and_no_water_is_a_finding():
+    """BB-1 is land, and no place claims it."""
+    result = _compute({"base": {"region": {"site": [1.0, 5.0]}}})
+    assert _codes(result) == ["site-outside"]
+
+
+def test_latlon_that_disagrees_with_the_region_is_a_finding():
+    result = _compute(
+        {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": 1.0, "lon": 7.0}}}
+    )
+    assert _codes(result) == ["latlon-disagrees"]
+
+
+def test_latlon_inside_the_region_is_not_a_finding():
+    result = _compute(
+        {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": 1.0, "lon": 1.0}}}
+    )
+    assert result.findings == []
+
+
+@pytest.mark.parametrize("lat", [math.inf, math.nan, True])
+def test_latlon_that_is_not_a_finite_number_is_not_checked(lat):
+    result = _compute(
+        {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": lat, "lon": 7.0}}}
+    )
+    assert result.findings == []
+    assert set(result.places) == {"x"}
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {},
+        {"provinces": ["AA-1"], "country": "AA"},
+        {"provinces": "AA-1"},
+        {"site": [1.0]},
+        {"sea": [1.0, -1.0], "reach_km": -5},
+        "AA-1",
+    ],
+)
+def test_a_malformed_region_block_is_a_finding(block):
+    assert _codes(_compute({"x": {"region": block}})) == ["bad-region"]
+
+
+def test_a_malformed_theatre_is_a_finding():
+    result = _compute({"x": {"region": {"provinces": ["AA-1"]}}}, {"theatre": [5, 0, 1, 1]})
+    assert _codes(result) == ["bad-theatre"]
