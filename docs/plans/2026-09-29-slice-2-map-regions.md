@@ -16,7 +16,7 @@ plain adjacency list, as today. `engine.run_async` writes `regions` into the `sc
 so replay, bundle and the viewer need nothing else. `ui/js/map.js` draws filled regions when
 the record carries them, dots otherwise.
 
-**Tech Stack:** Python 3.12, shapely ≥ 2.1 (`coverage_simplify`, `voronoi_polygons(ordered=True)`),
+**Tech Stack:** Python 3.13, shapely ≥ 2.1 (`coverage_simplify`, `voronoi_polygons(ordered=True)`),
 `lzma`, plain JS, pytest, Playwright (slice 1's browser suite).
 
 **Specs:** `docs/specs/2026-09-29-map-regions-design.md` (all of it). Master plan:
@@ -38,8 +38,10 @@ runs in the workspace playground, `.playground/casus-map/`, not in the repo):
 - Natural Earth draws the Guantánamo naval base as its own unit, `-99-X13~`, with no country.
   A `gtmo` site with Oriente as CU-10..CU-14 alone falls on land that is no place, which the spec
   makes a finding. Task 10 adds `-99-X13~` to Oriente.
-- The Caribbean, migrated as in Task 10: computed in 0.15 s, no findings, `regions.json` 69 KB,
-  four edges differ from the hand-written graph (the table is in Task 10).
+- The Caribbean, migrated as in Task 10: computed in 0.15 s, no findings, `regions.json` 69 KB.
+  That measurement put Mayabeque (CU-16) in Havana, and four edges differed from the hand-written
+  graph. Review moved Mayabeque to Occidente and removed one sea edge, so the graph the class
+  plays is v1's again (the table is in Task 10).
 
 ## Global Constraints
 
@@ -85,7 +87,7 @@ Also pinned here because this slice owns the code:
   `tests/test_migration.py::test_the_ported_caribbean_reproduces_its_recorded_trajectory`.
 
 Branch: `5-slice-2-map-regions`, from `origin/main` after slice 1 merged, in
-`.claude/worktrees/`. Run `uv sync --all-extras` first.
+`.claude/worktrees/`. Run `uv sync` first.
 
 ---
 
@@ -120,7 +122,7 @@ dependencies = [
 ]
 ```
 
-Run: `uv lock && uv sync --all-extras`
+Run: `uv lock && uv sync`
 Expected: `shapely==2.1.x` in the resolved set.
 
 - [ ] **Step 2: Write the failing tests**
@@ -2680,8 +2682,9 @@ def test_adjacency_is_symmetric_in_every_scenario():
 - [ ] **Step 3: Hold the v1 reproduction to v1's map**
 
 `test_the_ported_caribbean_reproduces_its_recorded_trajectory` compares each place's adjacency
-list, in order, with v1's recording. After this task the scenario's adjacency is computed, and
-it differs from v1's hand-written graph on purpose (Step 7). The acceptance test is about the
+list, in order, with v1's recording. After this task the scenario's adjacency is computed. It
+has v1's neighbours (Step 7), but a computed list comes out sorted, not in the order v1's authors
+wrote it. The acceptance test is about the
 ruleset, so it plays on the graph v1 played on. In `tests/test_migration.py`, add `import copy`
 and replace `without_recovery` with:
 
@@ -2694,9 +2697,9 @@ def v1_adjacency() -> dict[str, list[str]]:
 
 def without_recovery() -> Scenario:
     """The Caribbean on the reference ruleset with the ratchet repair switched
-    off and v1's adjacency restored: v1's physics on v1's map, which is what the
-    recording can be held to. The scenario's own adjacency is computed from its
-    regions and differs from v1's hand-written lists on purpose."""
+    off and v1's adjacency restored: v1's physics on v1's map, in v1's order,
+    which is what the recording can be held to. The scenario's own adjacency is
+    computed from its regions: the same neighbours, sorted."""
     scenario = Scenario.load(CARIBBEAN, validate=False)
     source = scenario.rules_source
     for name in RECOVERY_RATES:
@@ -2746,11 +2749,18 @@ them and slice 1's dots and `tests/test_worldmap.py` read them.
 
 ```yaml
   cu-habana:
-    region: {provinces: [CU-03, CU-16]}
+    # The city: v1 ran the land route east through Western Cuba, not through
+    # Havana. Mayabeque (CU-16) is in Occidente for that reason: it is the
+    # province that borders Matanzas.
+    region: {provinces: [CU-03]}
   cu-occidente:
-    region: {provinces: [CU-01, CU-15, CU-99]}
+    region: {provinces: [CU-01, CU-15, CU-99, CU-16]}
   cu-centro:
     region: {provinces: [CU-04, CU-05, CU-06, CU-07, CU-08, CU-09]}
+    # Matanzas' north coast lies within the straits zone's 240 km, but v1 has
+    # no sea route from Florida straight into Central Cuba, and the class keeps
+    # v1's map.
+    adjacency: {remove: [str-florida]}
   cu-oriente:
     # Natural Earth draws the Guantánamo naval base as its own unit with no
     # country (-99-X13~). Naming it here gives the gtmo site a region to be
@@ -2806,18 +2816,22 @@ for p in sorted(hand):
 EOF
 ```
 
-Expected, as measured on 2026-09-29:
+Expected. The 2026-09-29 measurement had Mayabeque in Havana; these lines are that measurement
+with Mayabeque moved, predicted from the province borders (Mayabeque touches Matanzas and
+Artemisa, Havana does not touch Matanzas) and not yet run:
 
 ```
 car-north     computed +[] -['str-florida']   used +[] -[]
-cu-centro     computed +['cu-habana', 'str-florida'] -['cu-occidente']   used +['cu-habana', 'str-florida'] -['cu-occidente']
-cu-habana     computed +['cu-centro'] -[]   used +['cu-centro'] -[]
-cu-occidente  computed +[] -['cu-centro']   used +[] -['cu-centro']
+cu-centro     computed +['str-florida'] -[]   used +[] -[]
+cu-habana     computed +[] -[]   used +[] -[]
+cu-occidente  computed +[] -[]   used +[] -[]
 cu-oriente    computed +[] -[]   used +[] -[]
 gtmo          computed +[] -[]   used +[] -[]
-str-florida   computed +['cu-centro'] -['car-north']   used +['cu-centro'] -[]
+str-florida   computed +['cu-centro'] -['car-north']   used +[] -[]
 us-florida    computed +[] -[]   used +[] -[]
 ```
+
+Every `used` column is empty: the class plays on v1's graph.
 
 If a line differs from this table, stop: a block or the map data changed, and every new line
 needs its own explanation below before the PR opens. Each difference in the table goes into the
@@ -2825,14 +2839,12 @@ PR body with its reason:
 
 | edge | computed | used | why |
 |---|---|---|---|
-| cu-habana – cu-centro | added | added | Mayabeque (CU-16) is part of cu-habana now, and it borders Matanzas (CU-04). v1 treated Havana as the city and ran the land route through Western Cuba. |
-| cu-occidente – cu-centro | removed | removed | Same cause: Artemisa and Pinar del Río do not touch Matanzas; Mayabeque lies between them. |
-| cu-centro – str-florida | added | added | Matanzas' north coast (Varadero, Cárdenas) lies within the straits zone's 240 km. |
+| cu-centro – str-florida | added | removed | Matanzas' north coast (Varadero, Cárdenas) lies within the straits zone's 240 km. The `remove` exception keeps v1's map, which has no sea route from Florida into Central Cuba. |
 | str-florida – car-north | removed | kept | The zones' reaches do not meet; the `add` exception keeps v1's sea lane round Cuba. |
 
-The three edges the class scenario now plays differently are a modelling change. Alex decides
-in review whether to keep them or restore v1's graph with exceptions (`cu-occidente:
-adjacency: {add: [cu-centro]}` and so on).
+Decided in review of PR #6: Mayabeque belongs to Occidente, which reproduces v1's land graph
+from the borders alone, and the straits edge is removed, so runs recorded from now on stay
+comparable with the ones in `runs/`.
 
 - [ ] **Step 8: Validate and run the suites that read the scenario**
 
@@ -2846,9 +2858,11 @@ Expected: `casus: scenarios/private/caribbean-2026: no findings` with no `warnin
 PASS with no skips in `test_migration.py`. Read the exit codes directly, not through a pipe.
 
 Break it on purpose: delete the two lines in `without_recovery` that restore `v1_adjacency()`
-and rerun `test_migration.py`. Expected: FAIL with `turn 1: place.cu-centro.adjacency recorded
-['cu-occidente', 'cu-oriente', 'car-north'], port gives ['car-north', 'cu-habana', 'cu-oriente',
-'str-florida']`. Restore the lines.
+and rerun `test_migration.py`. Expected: FAIL on turn 1 at the first place whose computed list
+is in a different order from v1's, for example `place.cu-centro.adjacency recorded
+['cu-occidente', 'cu-oriente', 'car-north'], port gives ['car-north', 'cu-occidente',
+'cu-oriente']`. The neighbours match and only the order differs; if a place's neighbours differ
+instead, the graph is not v1's and Step 7's table is wrong. Restore the lines.
 
 - [ ] **Step 9: Commit in the Workspace repo**
 
@@ -2984,7 +2998,7 @@ gh pr create --title "feat: map regions, computed adjacency, and the viewer fill
 ```
 
 The PR body carries: the adjacency table from Task 10 Step 7 with its reasons, the note that
-three class-scenario edges change and that Alex decides on them, the `-99-X13~` addition to
+the class scenario plays on v1's graph (Mayabeque in Occidente, one `remove` and one `add`), the `-99-X13~` addition to
 Oriente and why, the acceptance notes from Step 5 (what was checked and on which run), and the
 contract changes below.
 
