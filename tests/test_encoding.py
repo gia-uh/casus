@@ -39,5 +39,7 @@ def test_text_io_names_its_encoding(path):
 
 def test_the_check_sees_a_call_without_an_encoding(tmp_path):
     bad = tmp_path / "bad.py"
-    bad.write_text('p.read_text()\nopen("x")\np.open("rb")\np.write_text(s, encoding="utf-8")\n')
+    bad.write_text(
+        'p.read_text()\nopen("x")\np.open("rb")\np.write_text(s, encoding="utf-8")\n'
+    )
     assert _unencoded(bad) == ["bad.py:1 read_text()", "bad.py:2 open()"]

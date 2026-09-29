@@ -91,7 +91,9 @@ def test_presenter_mode_hides_the_controls(page, bundle_url, tmp_path):
 def _failed_before_prompts(records: list[dict], turn: int) -> list[dict]:
     """The run as the engine leaves it when a rule raises inside view() on `turn`:
     no prompt for that turn, and an error record in its place."""
-    first = next(i for i, r in enumerate(records) if r["kind"] == "prompt" and r["turn"] == turn)
+    first = next(
+        i for i, r in enumerate(records) if r["kind"] == "prompt" and r["turn"] == turn
+    )
     return [*records[:first], {"kind": "error", "turn": turn, "error": "boom in view"}]
 
 
@@ -143,7 +145,9 @@ def test_transcript_values_never_become_markup(page, bundle_url, tmp_path):
     places = header["scenario"]["places"]
     somewhere = next(p for p in places.values() if "lat" in p.get("attrs", {}))
     places['x"><img src=x onerror=window.PWNED=1>'] = {
-        "name": "x", "attrs": dict(somewhere["attrs"]), "adjacency": []
+        "name": "x",
+        "attrs": dict(somewhere["attrs"]),
+        "adjacency": [],
     }
     next(r for r in records if r["kind"] == "action")["action"]["intensity"] = HOSTILE
     page.goto(bundle_url(records))

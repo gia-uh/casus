@@ -92,7 +92,10 @@ def _card(records, place, sealed=False):
     payload = json.dumps({"records": records, "labels": [], "card": place, "sealed": sealed})
     done = subprocess.run(
         [NODE, str(HARNESS), "i18n.js,records.js,map.js,card.js"],
-        input=payload, capture_output=True, text=True, check=False,
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)["card"]
@@ -141,7 +144,9 @@ def test_the_card_shows_before_and_after_for_card_attributes(tmp_path):
     key = records[0]["scenario"]["display"]["card"][0]
     before, after = (s["attrs"][key] for s in _states(records, "border")[:2])
     assert round(before) != round(after)
-    row = re.search(rf'<div class="trow"><span>{key}</span>.*?</span>(?=</div>)', _card(records, "border"))
+    row = re.search(
+        rf'<div class="trow"><span>{key}</span>.*?</span>(?=</div>)', _card(records, "border")
+    )
     assert f"{round(before)} → {round(after)}" in _text(row.group(0))
 
 
@@ -151,14 +156,16 @@ def test_every_ui_script_parses(name):
     exits 0 on a .js file in ES module syntax even with a syntax error, so this
     test relies on ui/ staying classic."""
     done = subprocess.run(
-        [NODE, "--check", str(ROOT / "ui" / "js" / name)], capture_output=True, text=True
+        [NODE, "--check", str(ROOT / "ui" / "js" / name)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert done.returncode == 0, done.stderr[:400]
 
 
 def test_viewer_js_exists():
     assert (ROOT / "ui" / "js" / "viewer.js").is_file()
-
 
 
 def _chrome(key: str) -> dict[str, str]:

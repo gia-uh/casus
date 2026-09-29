@@ -167,7 +167,7 @@ def test_the_bundle_inlines_every_viewer_script_in_order(transcript, tmp_path):
 
 def test_the_bundle_boots_the_viewer_in_recorded_mode(transcript, tmp_path):
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
-    assert 'Casus.viewer.mount(' in html and '"recorded"' in html
+    assert "Casus.viewer.mount(" in html and '"recorded"' in html
 
 
 def test_no_script_or_style_in_the_bundle_names_a_web_font(transcript, tmp_path):
