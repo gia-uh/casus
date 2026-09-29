@@ -16,12 +16,14 @@ WORLDMAP = pathlib.Path(__file__).parent.parent.parent / "ui" / "worldmap.json"
 DATA_TOKEN = "__CASUS_DATA__"
 MAP_TOKEN = "__CASUS_WORLDMAP__"
 
-#: Record kinds the replayer reads. The raw `declaration` records are dropped:
-#: they are the replay payload, they stay in the transcript for audit, and no
-#: panel displays them. The `action` records already carry the rationale. The
-#: `mutation` records are the ledger, the heaviest records in a run, and stay in
-#: the transcript for the same reason.
-KEPT_KINDS = frozenset({"scenario", "state", "action", "event", "narrative", "prompt", "end"})
+#: Record kinds the viewer reads. `declaration` records are the replay payload and
+#: `mutation` records are the ledger; both stay in the transcript for audit. The
+#: `action` records already carry the rationale and the assessment, and the one
+#: thing the viewer needs from the ledger, a count per turn, travels as a small
+#: `ledger` record written here.
+KEPT_KINDS = frozenset(
+    {"scenario", "state", "action", "event", "narrative", "prompt", "end", "error"}
+)
 
 
 class BundleError(RuntimeError):
@@ -36,7 +38,7 @@ def bundle(
 ) -> pathlib.Path:
     """Write a single-file replayer for `transcript`."""
     records = _read(pathlib.Path(transcript))
-    kept = [r for r in records if r["kind"] in KEPT_KINDS]
+    kept = viewer_records(records)
     if not any(r["kind"] == "state" for r in kept):
         raise BundleError(f"{transcript} has no state records to replay")
 
@@ -52,6 +54,30 @@ def bundle(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     return out_path
+
+
+def viewer_records(records: list[dict]) -> list[dict]:
+    """The records the viewer plays, with each turn's mutations replaced by a
+    count placed just before the state that closes that turn."""
+    counts: dict[int, int] = {}
+    for r in records:
+        if r["kind"] == "mutation":
+            counts[r["turn"]] = counts.get(r["turn"], 0) + 1
+    out: list[dict] = []
+    for r in records:
+        if r["kind"] == "state" and (r["turn"] - 1) in counts:
+            out.append(
+                {
+                    "kind": "ledger",
+                    "turn": r["turn"] - 1,
+                    "mutations": counts.pop(r["turn"] - 1),
+                }
+            )
+        if r["kind"] in KEPT_KINDS:
+            out.append(r)
+    for turn, n in sorted(counts.items()):
+        out.append({"kind": "ledger", "turn": turn, "mutations": n})
+    return out
 
 
 def _read(path: pathlib.Path) -> list[dict]:

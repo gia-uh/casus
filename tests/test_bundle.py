@@ -126,3 +126,31 @@ def test_the_ledger_stays_in_the_transcript_and_out_of_the_bundle(transcript, tm
     """Mutations are the audit trail, and the heaviest records; no panel reads them."""
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
     assert '"kind":"mutation"' not in html
+
+
+def test_viewer_records_count_each_turns_mutations_in_one_ledger_record(transcript):
+    records = engine.read_records(transcript)
+    counted = {}
+    for r in records:
+        if r["kind"] == "mutation":
+            counted[r["turn"]] = counted.get(r["turn"], 0) + 1
+    kept = bundle.viewer_records(records)
+    ledgers = {r["turn"]: r["mutations"] for r in kept if r["kind"] == "ledger"}
+    assert ledgers == counted
+    assert not any(r["kind"] in ("mutation", "declaration") for r in kept)
+
+
+def test_a_ledger_record_sits_before_the_state_that_closes_its_turn(transcript):
+    kept = bundle.viewer_records(engine.read_records(transcript))
+    for i, r in enumerate(kept):
+        if r["kind"] == "ledger":
+            following = next(x for x in kept[i + 1 :] if x["kind"] == "state")
+            assert following["turn"] == r["turn"] + 1
+
+
+def test_an_error_record_reaches_the_viewer():
+    records = [
+        {"kind": "scenario", "turn": 0, "name": "x", "scenario": {}},
+        {"kind": "error", "turn": 1, "error": "rule raised"},
+    ]
+    assert bundle.viewer_records(records)[-1]["kind"] == "error"
