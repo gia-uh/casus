@@ -60,11 +60,12 @@ A home screen with two shelves, then full-screen documents.
   private link included when it resolves): name, counts of actors, places and
   turns, the validator's verdict, and two buttons, **Run** and **Design**. A
   dashed card starts a new scenario from the template.
-- **Studies.** A study is every transcript whose header names the same
-  scenario. There is no new storage: the server groups the files in `runs/` by
-  the `name` in their `scenario` record, and a run's id is its file stem. A
-  study card lists its runs, each with **View**, and has **Evaluate** and
-  **Add run**.
+- **Studies.** A study is every run of one version of one scenario, where the
+  version is a digest of the scenario data and rules source every transcript
+  carries (the evaluate mode spec explains why the version matters). There is
+  no new storage: the server groups the files in `runs/` by that digest, and a
+  run's id is its file stem. A study card lists its runs, each with **View**,
+  and has **Evaluate** and **Add runs**, which launches a batch of seeds.
 
 Opening anything fills the screen. The top bar (brand, breadcrumbs, settings)
 exists only when not presenting: `P` toggles presenter mode, which hides every
@@ -139,7 +140,8 @@ leave presenter mode or go home. A row of day markers jumps to a turn.
 ### The place card
 
 Hovering any place on any map (the war-room board, the command post, the
-workshop's map) shows a card:
+workshop's map) shows a card. With the map regions spec a place is a filled
+region, and the whole region is the hover target. The card shows:
 
 - the place's name, who controls it, its terrain and population, and which
   moment the card describes: at the start of day N, after resolving day N, or
@@ -244,10 +246,9 @@ Split screen: the design agent on the left, the artefact on the right.
   finding). A failing write is kept, and cannot be run; this is the v2
   design's commit moment made visible.
 - **Agent pane**: a chat where each tool call appears as a line with its result.
-  The eleven tools are the ones the v2 design lists (`create`,
-  `read_scenario`, `write_scenario`, `read_rules`, `write_rules`, `validate`,
-  `dry_run`, `reference`, `search_sources`, `search_web`, `cite`), and nothing
-  else. A validation failure shows in red and the agent's retry follows it, so
+  The twelve tools are the ones the design mode spec lists: the v2 design's
+  eleven and `assume`, which records a figure chosen by judgement as an
+  explicit assumption. Nothing else. A validation failure shows in red and the agent's retry follows it, so
   the room sees the validator refuse an uncited number.
 
 The agent itself (its system prompt, how it plans a change, how it fails) gets
@@ -264,9 +265,9 @@ Split screen again: the evaluate agent on the left, the study on the right.
   chosen from two selectors. The data comes from the `state` records, served by
   `GET /api/studies/<scenario>/series`, never computed by the agent.
 - **Agent pane**: the evaluate agent's chat, with its tool calls shown the same
-  way. Its tools are the v2 design's: list runs, query the mutation ledger,
-  compute across runs, read the scenario's `rules.py`. When an answer is about a
-  quantity, the chart switches to it.
+  way. Its tools are the fixed queries the evaluate mode spec lists; it runs no
+  code of its own. When an answer is about a quantity, the chart switches to
+  it, and any figure in an answer that no query returned is marked.
 
 The mockup's question "why does one actor end with no domestic support" is the
 case this mode exists for, and the answer came from the data: in the run
@@ -309,6 +310,7 @@ event library is needed.
 | GET | `/api/studies/<scenario>/series` | per-turn values from `state` records |
 | GET | `/api/runs/<id>` | a transcript's records, as the bundle keeps them |
 | POST | `/api/runs` | start a live run; returns its id |
+| POST | `/api/studies/<scenario>/runs` | start a batch of N seeds for the current version |
 | GET | `/api/runs/<id>/events` | the record stream: the file so far, then live |
 | GET/PUT | `/api/settings` | settings, secrets as *configured* or *not set* |
 | POST | `/api/settings/probe` | the connection test |
@@ -372,17 +374,20 @@ shows no attribute bars.
 
 Each slice ends in something Alex can open and use.
 
-1. **The viewer over recordings.** The new `ui/`, the bundle keeping
-   declarations and mutation counts, and `casus serve` with the shell and the
-   read-only endpoints. Recorded runs play in four beats with the place card.
+1. **The viewer over recordings.** The new `ui/`, the bundle's mutation
+   counts, and `casus serve` with the shell and the read-only endpoints.
+   Recorded runs play in four beats with the place card, on dots as today.
    No lingo change.
-2. **Live runs.** The observer in `run_async`, `POST /api/runs`, the event
+2. **Map regions** (`2026-09-29-map-regions-design.md`). The packaged map
+   data, `casus regions`, computed adjacency, the class scenario migrated, and
+   the viewer filling regions.
+3. **Live runs.** The observer in `run_async`, `POST /api/runs`, the event
    stream. Beat 1 shows *thinking* until each declaration arrives.
-3. **Streaming.** The lingo change, released; the incremental reader; `delta`
+4. **Streaming.** The lingo change, released; the incremental reader; `delta`
    messages; panes that type as the models write.
-4. **Settings.** The screen, the config file, the probe, the leak test.
-5. **Design mode**, after its spec.
-6. **Evaluate mode**, after its spec.
+5. **Settings.** The screen, the config file, the probe, the leak test.
+6. **Design mode** (`2026-09-29-design-mode-design.md`).
+7. **Evaluate mode** (`2026-09-29-evaluate-mode-design.md`), with batches.
 
 The labels gap is fixed in slice 1, because the viewer is the first thing that
 shows it.
@@ -400,8 +405,5 @@ shows it.
 
 ## Open questions
 
-- Whether **Add run** on a study should launch a batch (say, ten seeds) rather
-  than one. Evaluate needs several runs to say anything, and one at a time is
-  slow to build a study with.
 - Whether the war room should show fewer than five panes for scenarios with
   more actors, or scroll. The one scenario with a map has five.
