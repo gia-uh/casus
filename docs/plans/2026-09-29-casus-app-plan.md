@@ -40,7 +40,7 @@ Branch names: `5-slice-N-<slug>`, from `origin/main`, in `.claude/worktrees/`. R
 - `casus bundle` output loads nothing from the network: no `http://` or `https://` URL in any `src`, `href` or `url(`. The existing test `test_bundled_html_loads_nothing_from_the_network` keeps guarding it.
 - The server binds `127.0.0.1` only. No setting changes that.
 - A transcript and a bundle never contain credential material; slice 5 adds the test.
-- `ui/` is classic scripts (no `type="module"`), loaded in the fixed order below, each attaching to one global `Casus` namespace. This is so the bundle can concatenate them and so `node --check` means something: it exits 0 on a syntax error in an ES module.
+- `ui/` is classic scripts (no `type="module"`), loaded in the fixed order below, each attaching to one global `Casus` namespace. This is so the bundle can concatenate them into one inline script without a build step. It also keeps `node --check` honest: node 22 exits 0 on a `.js` file in ES module syntax even with a syntax error and fails an `.mjs` file as it should. Renaming the scripts to `.mjs` modules would fix the check but break the concatenation, which is the reason they stay classic.
 - Line length 96 (ruff). `make test` is the gate and stays the only gate.
 
 ## Review Focus

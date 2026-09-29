@@ -1119,8 +1119,9 @@ Append to `tests/test_ui_scripts.py`:
 ```python
 @pytest.mark.parametrize("name", sorted(p.name for p in (ROOT / "ui" / "js").glob("*.js")))
 def test_every_ui_script_parses(name):
-    """Classic scripts, so node --check means something: it exits 0 on a syntax
-    error in an ES module, which is why ui/ has none."""
+    """The scripts are classic so the bundle can concatenate them. node --check
+    exits 0 on a .js file in ES module syntax even with a syntax error, so this
+    test relies on ui/ staying classic."""
     done = subprocess.run(
         [NODE, "--check", str(ROOT / "ui" / "js" / name)], capture_output=True, text=True
     )

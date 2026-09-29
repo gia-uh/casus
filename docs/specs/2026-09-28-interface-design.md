@@ -368,8 +368,10 @@ shows no attribute bars.
   breaking into columns from a clashing class name, a recorded run frozen
   mid-resolution, a place card describing a state the screen had left). It
   runs in CI in its own job, with Playwright's Chromium. The existing
-  `node --check` guard stays and keeps meaning something only because the
-  scripts are classic: on an ES module it exits 0 even with a syntax error.
+  `node --check` guard stays and runs on every script. The scripts are classic
+  so that the bundle can concatenate them. That also keeps the guard honest:
+  node 22 passes a `.js` file written in ES module syntax even with a syntax
+  error, though it does fail an `.mjs` file.
 
 ## Order of work
 
