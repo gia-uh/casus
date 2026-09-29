@@ -79,17 +79,19 @@ def test_an_unknown_run_is_a_404(client):
     assert client.get("/api/runs/nope").status_code == 404
 
 
-@pytest.mark.parametrize("bad", ["..%2Fsmoke-5", "a/b", ".hidden", "x y"])
+@pytest.mark.parametrize("bad", ["..\\smoke-5", ".hidden", "x y"])
 def test_a_run_id_cannot_leave_the_runs_directory(client, runs, bad):
-    # A real transcript sits wherever each id would lead, so only the guard answers 404.
+    # A real transcript sits wherever each id could lead, so only the guard
+    # answers 404. `..\smoke-5` routes as one segment: on Windows it climbs out
+    # of runs/, on Linux it names a file with a backslash in it. An id with a
+    # slash never reaches the guard, because routing rejects it first.
     transcript = (runs / "smoke-5.jsonl").read_text()
     for target in (
         runs.parent / "smoke-5.jsonl",
-        runs / "a" / "b.jsonl",
+        runs / "..\\smoke-5.jsonl",
         runs / ".hidden.jsonl",
         runs / "x y.jsonl",
     ):
-        target.parent.mkdir(exist_ok=True)
         target.write_text(transcript)
     assert client.get(f"/api/runs/{bad}").status_code == 404
 
