@@ -306,6 +306,41 @@ def test_seed_on_a_border_belongs_to_one_region():
     assert shapes["west-a"].contains(Point(result.places["west-a"]["label"]))
 
 
+def test_a_seed_on_the_edge_of_its_region_is_not_its_label():
+    """Without a site to carve around it, west-a's seed sits on the region's own
+    edge. The label must be strictly inside, not on that edge."""
+    result = _compute(
+        {
+            "west-a": {"region": {"provinces": ["AA-1"], "seed": [1.0, 2.0]}},
+            "west-b": {"region": {"provinces": ["AA-1"], "seed": [1.0, 0.5]}},
+        }
+    )
+    assert result.findings == []
+    assert _shape(result, "west-a").contains(Point(result.places["west-a"]["label"]))
+
+
+def test_a_split_that_geos_cannot_compute_is_a_finding(monkeypatch):
+    """Every place on the base gets the finding and no polygon; other bases are
+    untouched."""
+
+    def fail(*args, **kwargs):
+        raise shapely.errors.GEOSException("IllegalArgumentException: boom")
+
+    monkeypatch.setattr(shapely, "voronoi_polygons", fail)
+    result = _compute(
+        {
+            "x": {"region": {"provinces": ["AA-1"], "seed": [1.0, 0.5]}},
+            "y": {"region": {"provinces": ["AA-1"], "seed": [1.0, 1.5]}},
+            "z": {"region": {"provinces": ["AA-4"]}},
+        }
+    )
+    assert [(f.place, f.code) for f in result.findings] == [
+        ("x", "geometry-error"),
+        ("y", "geometry-error"),
+    ]
+    assert set(result.places) == {"z"}
+
+
 def test_a_region_carved_away_entirely_is_a_finding():
     result = _compute(
         {
@@ -329,10 +364,16 @@ def test_a_site_in_no_region_and_no_water_is_a_finding():
 
 
 def test_latlon_that_disagrees_with_the_region_is_a_finding():
+    """The place gets no polygon, so no neighbour names it either."""
     result = _compute(
-        {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": 1.0, "lon": 7.0}}}
+        {
+            "x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": 1.0, "lon": 7.0}},
+            "y": {"region": {"provinces": ["AA-2"]}},
+        }
     )
     assert _codes(result) == ["latlon-disagrees"]
+    assert set(result.places) == {"y"}
+    assert result.adjacency == {"y": []}
 
 
 def test_latlon_inside_the_region_is_not_a_finding():
@@ -342,13 +383,23 @@ def test_latlon_inside_the_region_is_not_a_finding():
     assert result.findings == []
 
 
+@pytest.mark.parametrize("key", ["lat", "lon"])
 @pytest.mark.parametrize(
-    "lat", [math.inf, math.nan, True, 10**400], ids=["inf", "nan", "bool", "huge"]
+    "bad", [math.inf, math.nan, True, 10**400], ids=["inf", "nan", "bool", "huge"]
 )
-def test_latlon_that_is_not_a_finite_number_is_not_checked(lat):
-    result = _compute(
-        {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": lat, "lon": 7.0}}}
-    )
+def test_latlon_that_is_not_a_finite_number_is_not_checked(key, bad):
+    """The other coordinate, 7.0, is far off AA-1, so a check that ran would find
+    the pair disagrees."""
+    attrs = {"lat": 7.0, "lon": 7.0, key: bad}
+    result = _compute({"x": {"region": {"provinces": ["AA-1"]}, "attrs": attrs}})
+    assert result.findings == []
+    assert set(result.places) == {"x"}
+
+
+@pytest.mark.parametrize("attrs", [[1, 2], "x", 5])
+def test_attrs_that_are_not_a_mapping_are_not_checked(attrs):
+    """`casus regions` feeds compute raw YAML, so attrs can be anything."""
+    result = _compute({"x": {"region": {"provinces": ["AA-1"]}, "attrs": attrs}})
     assert result.findings == []
     assert set(result.places) == {"x"}
 

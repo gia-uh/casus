@@ -370,13 +370,17 @@ def _kept(shapes, specs, findings) -> dict[str, BaseGeometry]:
     return kept
 
 
-def _latlon(place: str, spec: dict, geom: BaseGeometry, findings: list) -> None:
+def _latlon(place: str, spec: dict, geom: BaseGeometry, findings: list) -> bool:
     """A place that also carries lat/lon attributes must put them on or near its
-    region: no farther away than the region's own size."""
-    attrs = spec.get("attrs") or {}
+    region: no farther away than the region's own size. False, with a finding,
+    when they disagree. Attributes that are not a mapping of finite numbers are
+    not checked: `casus regions` reads raw YAML, not a validated scenario."""
+    attrs = spec.get("attrs")
+    if not isinstance(attrs, dict):
+        return True
     lat, lon = _finite(attrs.get("lat")), _finite(attrs.get("lon"))
     if lat is None or lon is None:
-        return
+        return True
     local = _local(geom, lat)
     size = math.sqrt(local.area / math.pi)
     off = local.distance(_local(Point(lon, lat), lat))
@@ -389,12 +393,15 @@ def _latlon(place: str, spec: dict, geom: BaseGeometry, findings: list) -> None:
                 f"region's own size of {size:.0f} km (the radius of a circle of its area)",
             )
         )
+        return False
+    return True
 
 
 def _label(spec: _Spec, geom: BaseGeometry) -> tuple[float, float]:
-    """The seed when the region still holds it, else the pole of inaccessibility
-    of its largest part: a point inside, away from the border."""
-    if spec.seed is not None and geom.intersects(Point(spec.seed)):
+    """The seed when it is strictly inside the region (not on its border), else
+    the pole of inaccessibility of its largest part: a point inside, away from
+    the border."""
+    if spec.seed is not None and geom.contains(Point(spec.seed)):
         return spec.seed
     largest = max(shapely.get_parts(geom), key=lambda part: part.area)
     point = polylabel(largest, tolerance=0.01)
@@ -488,9 +495,11 @@ def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
     for place, spec in specs.items():
         if spec.kind == "site":
             _carve(place, spec, shapes, sea, frame, findings)
-    kept = _kept(shapes, specs, findings)
-    for place, geom in kept.items():
-        _latlon(place, places[place] or {}, geom, findings)
+    kept = {
+        place: geom
+        for place, geom in _kept(shapes, specs, findings).items()
+        if _latlon(place, places[place] or {}, geom, findings)
+    }
 
     return Regions(
         places={
