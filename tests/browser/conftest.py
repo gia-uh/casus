@@ -1,0 +1,57 @@
+"""Real Chromium over the real viewer. Skips when Playwright or its browser is
+missing, so a laptop without them still runs `make test`; CI installs both."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+playwright_sync = pytest.importorskip("playwright.sync_api")
+
+from browser_support import run_records, serve, write_run
+
+from casus import bundle
+
+
+@pytest.fixture(scope="session")
+def browser():
+    with playwright_sync.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except playwright_sync.Error as exc:  # the executable is not installed
+            pytest.skip(f"chromium is not installed: {exc}")
+        yield b
+        b.close()
+
+
+@pytest.fixture
+def page(browser):
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    pg = ctx.new_page()
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    pg.on("console", lambda m: m.type == "error" and errors.append(f"console: {m.text}"))
+    yield pg
+    ctx.close()
+    assert not errors, errors
+
+
+@pytest.fixture
+def bundle_url(tmp_path):
+    def make(records: list[dict]) -> str:
+        src = tmp_path / "in.jsonl"
+        src.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+        return bundle.bundle(src, tmp_path / "out.html").as_uri()
+
+    return make
+
+
+@pytest.fixture
+def app_url(tmp_path):
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    write_run(runs, "reference-1", run_records(tmp_path))
+    url, stop = serve(runs)
+    yield url
+    stop()
