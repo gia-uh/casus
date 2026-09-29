@@ -36,14 +36,26 @@ def test_the_tool_fails_when_the_coverage_does_not_hold():
         tool.compact([box(0, 0, 2, 2), box(1, 0, 3, 2)])
 
 
+def test_the_tool_snaps_every_coordinate_to_the_grid():
+    tool = _tool()
+    [compacted] = tool.compact([box(0, 0, 1.0004, 1)])
+    for c in shapely.get_coordinates(compacted).flat:
+        assert c / tool.GRID == pytest.approx(round(c / tool.GRID), abs=1e-9)
+
+
 def test_a_ring_is_stored_as_integer_steps_from_its_first_point():
-    code, name, country, [[ring]] = _tool().encode("AA-1", "One", "AA", box(0, 0, 0.5, 0.25))
+    tool = _tool()
+    shape = box(0, 0, 0.5, 0.25)  # wider than tall, so swapping x and y shows
+    code, name, country, [[ring]] = tool.encode("AA-1", "One", "AA", shape)
     assert (code, name, country) == ("AA-1", "One", "AA")
     assert all(isinstance(v, int) for v in ring)
     x, y = ring[0], ring[1]
+    points = [(x, y)]
     for dx, dy in zip(ring[2::2], ring[3::2], strict=True):
         x, y = x + dx, y + dy
-    assert (x, y) == (ring[0], ring[1]), "the ring does not close"
+        points.append((x, y))
+    scale = tool.SCALE
+    assert points == [(round(x * scale), round(y * scale)) for x, y in shape.exterior.coords]
 
 
 def _payload(*provinces, countries=None) -> dict:
