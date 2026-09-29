@@ -2,6 +2,7 @@ import pathlib
 import shutil
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from casus import bundle, engine
@@ -112,6 +113,20 @@ def test_a_broken_scenario_gets_a_card_and_does_not_blank_the_list(tmp_path, run
     assert by_dir["bad-yaml"]["name"] == "bad-yaml"
     assert by_dir["bad-yaml"]["actors"] is None
     assert by_dir["smoke"]["valid"] is True
+
+
+@pytest.mark.parametrize(
+    ("turns", "shown"), [(4, 4), ("<img src=x onerror=window.PWNED=1>", None), (True, None)]
+)
+def test_a_card_shows_turns_only_when_they_are_a_whole_number(tmp_path, runs, turns, shown):
+    scenarios = tmp_path / "scenarios"
+    shutil.copytree(SCENARIOS / "smoke", scenarios / "smoke")
+    manifest = scenarios / "smoke" / "scenario.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    manifest.write_text(yaml.safe_dump({**data, "turns": turns}), encoding="utf-8")
+    client = TestClient(create_app(scenarios_dir=scenarios, runs_dir=runs))
+    [card] = client.get("/api/scenarios").json()
+    assert card["turns"] == shown
 
 
 @pytest.mark.parametrize("stem", ["my run", "it's", "evil\n"])

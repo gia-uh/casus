@@ -55,12 +55,13 @@ def _card(directory: pathlib.Path) -> dict:
         value = data.get(key)
         return len(value) if isinstance(value, dict | list) else None
 
+    turns = data.get("turns")
     return {
         "name": str(data.get("name") or directory.name),
         "dir": directory.name,
         "actors": count("actors"),
         "places": count("places"),
-        "turns": data.get("turns"),
+        "turns": turns if type(turns) is int else None,  # never markup, never a bool
         "description": str(data.get("description") or ""),
         "valid": valid,
         "findings": list(findings),
