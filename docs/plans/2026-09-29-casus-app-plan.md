@@ -6,7 +6,7 @@
 
 **Architecture:** One viewer, written as plain browser scripts under `ui/`, consumes transcript records. A FastAPI server (`casus serve`) feeds it from files and, for live runs, from an observer on `engine.run_async` over server-sent events; `casus bundle` inlines the same scripts and the records into one offline HTML file. Map regions are computed once per scenario from Natural Earth data shipped in the package and carried inside the transcript. Design and evaluate are lovelaice agents with fixed tool sets, behind an optional extra.
 
-**Tech Stack:** Python 3.12+, FastAPI + uvicorn, shapely ≥ 2.1, lingo-ai, lovelaice (optional extra, Python 3.13+), plain HTML/CSS/JS with no build step, pytest, Playwright (browser tests in CI).
+**Tech Stack:** Python 3.12+, FastAPI + uvicorn, shapely ≥ 2.1, lingo-ai ≥ 2.2.0 (slice 4 releases it), lovelaice (optional extra, Python 3.13+), plain HTML/CSS/JS with no build step, pytest, Playwright (browser tests in CI).
 
 **Specs:** `docs/specs/2026-09-28-interface-design.md`, `docs/specs/2026-09-29-map-regions-design.md`, `docs/specs/2026-09-29-design-mode-design.md`, `docs/specs/2026-09-29-evaluate-mode-design.md`. Every slice plan argues from these; read the spec before the slice.
 
@@ -136,6 +136,7 @@ The viewer reads transcript records unchanged, plus two message kinds that are n
 ```json
 {"kind": "ledger", "turn": 3, "mutations": 41}
 {"kind": "delta", "turn": 3, "actor": "CU", "text": "Reforzar la"}
+{"kind": "delta", "turn": 3, "actor": "CU", "text": "", "reset": true}
 ```
 
 - `ledger` is written by `bundle.viewer_records()` (slice 1) in place of each turn's `mutation` records. The server's `/api/runs/<id>` returns the same list.
@@ -199,7 +200,8 @@ def list_studies(runs_dir: pathlib.Path) -> list[Study]: ...          # slice 7
 
 # server/app.py (slice 1)
 def create_app(*, scenarios_dir: pathlib.Path, runs_dir: pathlib.Path,
-               settings: "Settings | None" = None) -> FastAPI: ...
+               settings: "Settings | None" = None,
+               run_manager: "RunManager | None" = None) -> FastAPI: ...   # run_manager: slice 3
 
 # engine.py (slice 3)
 Observer = Callable[[dict], Awaitable[None]]
@@ -211,7 +213,8 @@ class RunManager:
     def __init__(self, runs_dir: pathlib.Path, engine_factory=engine_for): ...
     async def start(self, scenario_dir: pathlib.Path, *, seed: int, turns: int | None,
                     model: str | None) -> str: ...                    # returns run id
-    def subscribe(self, run_id: str) -> AsyncIterator[dict]: ...      # file so far, then live
+    def subscribe(self, run_id: str, after: int = -1) -> AsyncIterator[dict]: ...
+        # every message numbered after `after`: the run so far, then live; each carries "seq"
     async def start_batch(self, scenario_dir, *, n: int, first_seed: int,
                           turns: int | None, concurrency: int) -> list[str]: ...   # slice 7
 
@@ -222,7 +225,8 @@ class RationaleReader:
 
 # players.py (slice 4)
 async def Player.decide(self, world, prompt, offered,
-                        on_rationale: Callable[[str], Awaitable[None]] | None = None): ...
+                        on_rationale: Callable[[str], Awaitable[None]] | None = None,
+                        on_restart: Callable[[], Awaitable[None]] | None = None): ...
 
 # geo/regions.py (slice 2)
 @dataclass(frozen=True)
@@ -239,7 +243,7 @@ class Regions:
     findings: list[RegionFinding]
     def to_json(self, digest: str) -> dict: ...
 def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions: ...   # mapdata injectable for tests
-def region_digest(places: dict[str, dict]) -> str: ...
+def region_digest(places: dict[str, dict], theatre=None) -> str: ...   # lives in geo/digest.py
 
 # settings.py (slice 5)
 @dataclass
@@ -293,12 +297,12 @@ Casus.records.RunModel          // new RunModel(); .push(record); .onChange(fn(k
   //   .error, .ended
 Casus.records.actorIds(run); Casus.records.label(run, key); Casus.records.declarations(turn)
 Casus.map.draw(svg, run, snapshot, opts)   // opts: {targets, font, aspect, slice, edges, rscale, ctx}
-  // slice 2: draws filled regions when run.scenario.regions exists, dots otherwise
+  // slice 2: draws filled regions when run.header.regions exists, dots otherwise
 Casus.map.hasMap(run); Casus.map.colour(run, actorId); Casus.map.context(id); Casus.map.esc(s)
 Casus.card.html(run, placeId, ctx); Casus.card.attach(document, run); Casus.card.refresh(); Casus.card.fmt(n)
 Casus.viewer.mount(root, run, {mode: "live" | "recorded"})   // -> {destroy(), state()}
 Casus.viewer.rationaleFor(run, turn, actorId, declared)      // slice 4 makes it read deltas
-Casus.shell.start(); Casus.shell.route(name, fn(view, arg) -> teardown?); Casus.shell.onHome(fn(view));
+Casus.shell.start(); Casus.shell.route(name, fn(view, ...args) -> teardown?); Casus.shell.onHome(fn(view));
 Casus.shell.json(url)
 ```
 
@@ -323,6 +327,121 @@ Routes: `#/` home, `#/view/<run>` (slice 1), `#/run/<scenario>` (slice 3), `#/de
 | POST | `/studies/{scenario}/{version}/chat` | 7 | `{text}` → event stream of agent events |
 
 Agent event stream messages (slices 6, 7): `{"type": "delta", "text"}`, `{"type": "tool_start", "id", "name", "args"}`, `{"type": "tool_end", "id", "ok", "result"}`, `{"type": "done", "unsupported": [...]}` (the last field in slice 7 only).
+
+---
+
+## Amendments from the slice plans
+
+The slice plans were written against the contract above and each listed what it had to add or
+change. The changes are resolved against each other here. Where this section and the sections
+above differ, this section wins.
+
+**Slice 1 (fixed during review).** `make test` runs `pytest --ignore=tests/browser` and then
+`pytest tests/browser` as two processes, because Playwright's sync API keeps an event loop running
+for the whole session and every later `asyncio.run` would fail. `browser_support.run_records`
+records on a worker thread for the same reason. `ui/css/app.css` sizes `#appshell` (the app) and
+keeps `#app` (the bundle). `Casus.shell` passes every path segment after the route name.
+
+**Slice 2, map regions.**
+- The viewer reads regions from `run.header.regions` (the `scenario` record's top-level `regions`).
+- `region_digest(places, theatre=None)` also covers `display.theatre`; it lives in
+  `src/casus/geo/digest.py` so `Scenario.load` checks staleness without importing shapely.
+  `geo/regions.py` re-exports it.
+- `Regions` gains `mapdata: str = ""`. `Scenario` gains `regions` and `warnings`;
+  `casus validate` prints warnings without failing.
+- Slice 2 also modifies `engine.py` (the `regions` key), `server/app.py` (`_card` reads counts
+  from the YAML so a stale map shows as an invalid scenario), `tests/helpers.py`,
+  `tests/test_migration.py` and `tests/reference/test_scenarios.py`.
+- Listing a country's provinces is `load_admin1()` with `MapData.names` and `MapData.country_of`;
+  `provinces(codes)` returns a geometry.
+
+**Slice 3, live runs.**
+- `create_app(..., run_manager=None)` is the test seam for a fake engine behind the served app;
+  slice 4 uses it too. `browser_support.serve(runs_dir, **app_kwargs)` passes it through.
+- `RunManager(runs_dir, engine_factory=engine_for)`; `engine_factory` is `Callable[[str], Engine]`,
+  called with a model name once per actor and once for the narrator. `subscribe(run_id, after=-1)`
+  raises `KeyError` for an unknown run.
+- The event stream sends each message as `id: <seq>` and `data: <json>`, `: keepalive` comments
+  after 15 s of silence, and a final `event: close`; it honours `Last-Event-ID`. Its messages are
+  `bundle.viewer_records` of the transcript plus `seq`; slice 4's `delta` messages share the
+  numbering.
+- `POST /runs`: `scenario` is the card's `dir`; `seed` ≥ 0 (default 1); `turns` ≥ 1 or null;
+  `model` replaces every actor's model in the recorded data. 404 unknown scenario, 422 bad body or
+  a scenario that does not validate.
+- `run_async` writes an `error` record for any exception that stops a run, on the turn being
+  played, as `"<TypeName>: <message>"` passed through `settings.redact()` (slice 5 adds the
+  redaction when it lands after slice 3). `engine.Observer` is exported.
+- JS: `RunModel.seq`, and `push` drops a message whose `seq` is not above it;
+  `Casus.viewer.follow(url, run) -> {close(), reconnect()}` and `Casus.viewer.streams`.
+
+**Slice 4, streaming.**
+- `Player.decide(..., on_rationale=None, on_restart=None)`. `on_restart` fires when lingo retries
+  a truncated attempt or the streamed call falls back to a plain one, so two attempts' text never
+  concatenate.
+- A `delta` with `reset: true` empties that actor's deltas for that turn (`records.js`).
+- lingo 2.2.0: `LLM.create(model, messages, *, on_token=None, on_retry=None, **kwargs)` and
+  `Engine.create(context, model, *instructions, on_token=None, on_retry=None)`; casus requires
+  `lingo-ai>=2.2.0`. lingo's `main` CI is red on `ruff format` and must be fixed before release.
+- `tests/helpers.py` gains `StreamingFakeEngine` and `with_narrator`.
+
+**Slice 5, settings.**
+- `settings.py` also exports `SettingsError`, `config_path(env=None)`, `data_dir(env=None)`
+  (`$XDG_DATA_HOME/casus`, the one home for chat sessions), `merge(current, changes, clear=())`,
+  `redact(text, secrets=None)`, and `FIELDS`, `SECRETS`, `ENV`, `DEFAULTS`, `EXPORTED`.
+- `apply_to_env()` exports `BASE_URL`, `API_KEY` and `FIRECRAWL_API_KEY`.
+- `Settings.public()` is `{field: {"value", "origin", "secret"}}`, a secret's value being
+  `"configured"` or `"not set"`. `PUT /settings` takes any subset of fields plus
+  `clear: ["api_key" | "firecrawl_token"]`; an empty secret keeps the stored one; bad input is a
+  422 and changes nothing.
+- Slices 6 and 7 pass every exception text they show or record through `redact()`, and read
+  `firecrawl_token`, `agent_model`, `source_dirs` and `run_concurrency` from `Settings.load()`.
+- `cli.py`: `run` and `serve` load and apply settings first.
+
+**Slice 6, design mode.**
+- New files: `src/casus/validate/sources.py` (slug rule, source file format, `check_sources`),
+  `src/casus/validate/full.py` (`check()`, shared by `casus validate` and the workshop),
+  `src/casus/design/form.py`, `src/casus/server/design.py` (the router), `tests/design_support.py`,
+  `tests/test_design_form.py`, `tests/test_validate_sources.py`, `scenarios/*/sources/`.
+- Only `design/tools.py` and `design/agent.py` need the `agents` extra.
+- `scenario.py` gains the source rule in `Scenario.load(validate=True)` and a `rules_root`
+  keyword; `browser_support.serve` gains `scenarios_dir`.
+- HTTP under `/design`: `GET /{scenario}` (overview), `POST /{scenario}/form` (`{edits}` →
+  `{text}`), `GET /{scenario}/sources/{slug}`; `GET .../files/{name}` returns
+  `{name, text, origin, editable}`; `PUT` a failing write is `200` with `ok: false`, a save while
+  the agent works is `409`; chat is `409` while busy and `501` without the extra.
+- Agent events: `tool_end` may carry `diff`; an error inside a turn arrives as a `delta` before
+  `done`.
+- `Workspace(scenario_dir, *, mapdata=None)` with `exists`, `rules_view`, `check`, `status`,
+  `dry_run`, `create`, `draft_data`, `draft_scenario`, `draft_regions`; `WriteResult.to_json()`;
+  `build_tools(scenario_dir, settings, *, http=None, cap=None)`;
+  `build_design_agent(scenario_dir, settings, session_dir, *, http=None) -> DesignAgent` with
+  `async turn(text, send) -> str`.
+- The `agents` extra and a CI matrix over Python 3.12 and 3.13 with `--all-extras`, plus a
+  3.13-only step that imports both agent modules so their tests cannot skip silently.
+
+**Slice 7, evaluate mode.**
+- New files: `src/casus/server/study.py` (the router), `tests/evaluate_support.py`,
+  `tests/test_evaluate_{checker,queries,batches,tools,agent}.py`.
+- `Study.to_json()`; `evaluate/queries.py` adds `runs`, `read_scenario`, `read_rules`,
+  `render(result) -> str`, `fmt(value) -> str`, `QueryError`; `ledger`'s `run` takes an id or a
+  seed; `checker.figures(text)`.
+- `RunManager.batch_plan(scenario, *, n, turns, first_seed) -> dict`
+  (`runs, turns, actors, first_seed, last_seed, calls`); `start_batch` reserves ids through
+  slice 3's scheme (`<name>-<seed>`, then `-2`, `-3`).
+- `build_evaluate_agent(study, settings, session_dir) -> EvaluateAgent` with
+  `async turn(text, send) -> str` and `unsupported() -> list[str]`.
+- HTTP: `{scenario}` in `/studies/...` is the scenario's name as transcripts carry it;
+  `GET /studies` items gain `current` and `date`; new `GET /studies/{scenario}/plan?n=&turns=` and
+  `GET /studies/{scenario}/{version}/chat`; `POST /studies/{scenario}/runs` takes `n` 1..100
+  (default 10).
+- Home study cards carry `data-study`, `data-version`, `data-current`; `Casus.study = {mark, footer,
+  holders}`.
+- Whichever of slices 6 and 7 lands second extends `tests/test_purity.py` so lovelaice is imported
+  only by `design/{tools,agent}.py` and `evaluate/{tools,agent}.py`.
+
+**Follow-up after slice 7.** `tests/design_support.ScriptedLLM` and
+`tests/evaluate_support.Analyst` are the same kind of fake model; move them into one
+`tests/agent_support.py` in its own small PR.
 
 ---
 

@@ -1080,10 +1080,12 @@ Copy the whole `<style>` block of the mockup (`casus-v2.html`, from `:root{` to 
    .mk{stroke:#070b12}
    .target{fill:none;animation:ping 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}
    .nomap{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);font-family:var(--mono);font-size:12px}
+   #appshell{height:100vh;display:flex;flex-direction:column}
    .banner{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:8;background:rgba(40,28,6,.95);border:1px solid #5c4a1f;border-radius:8px;padding:8px 14px;font-size:13px}
    #tip em{color:var(--accent);font-style:normal}
    ```
 3. Delete the `.land.cu` and `.land.us` rules: country colouring by owner is not generic.
+4. Keep the mockup's `#app{height:100vh;display:flex;flex-direction:column}` rule: it sizes the bundle's root (`<div id="app">` in `ui/bundle.html`), which `.visor{height:100%}` fills. The app's root is `#appshell`, sized by the rule added above; without it `#view` has no bounded height.
 
 - [ ] **Step 6: Run to verify the card tests pass**
 
@@ -1815,10 +1817,12 @@ __CASUS_SCRIPTS__
   async function dispatch() {
     if (current) { current(); current = null; }
     document.body.classList.remove("present");
-    const [, name, arg] = (location.hash || "#/").split("/");
-    document.getElementById("crumbs").textContent = name ? `› ${name} · ${decodeURIComponent(arg || "")}` : "";
-    if (name === "view") current = await viewRun(decodeURIComponent(arg));
-    else if (routes[name]) current = await routes[name](view(), decodeURIComponent(arg || ""));
+    const [, name, ...parts] = (location.hash || "#/").split("/");
+    const args = parts.map(decodeURIComponent);
+    document.getElementById("crumbs").textContent = name ? `› ${name} · ${args.join(" · ")}` : "";
+    // A route gets every path segment after its name: #/study/<scenario>/<version> has two.
+    if (name === "view") current = await viewRun(args[0]);
+    else if (routes[name]) current = await routes[name](view(), ...args);
     else await home();
   }
 
@@ -1885,7 +1889,7 @@ git commit -m "feat(server): casus serve, the shell, and the read-only endpoints
 
 **Files:**
 - Create: `tests/browser/conftest.py`, `tests/browser/browser_support.py`, `tests/browser/test_viewer.py`, `tests/browser/test_app.py` (no `__init__.py`: the suite imports like the rest of `tests/`, and a module named `conftest` would collide with `tests/conftest.py`, so shared helpers live in `browser_support.py`)
-- Modify: `.github/workflows/tests.yml`
+- Modify: `.github/workflows/tests.yml`, `Makefile`
 
 **Interfaces:**
 - Produces fixtures later slices reuse: `page` (a Playwright page that fails the test on any console error or page error), `bundle_url(records) -> str` (writes a bundle from records and returns a `file://` URL), `app_url` (a running `casus serve` on a free port over a temporary runs directory).
@@ -1900,6 +1904,7 @@ git commit -m "feat(server): casus serve, the shell, and the read-only endpoints
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import pathlib
 import socket
@@ -1914,10 +1919,14 @@ ROOT = pathlib.Path(__file__).parent.parent.parent
 
 
 def run_records(tmp_path: pathlib.Path, scenario_dir="reference", turns=2, reply=None) -> list[dict]:
+    """Record a run with fake engines. On a worker thread, because Playwright's sync
+    API keeps an event loop running on the test thread and `engine.run` calls
+    `asyncio.run`, which refuses to start inside a running loop."""
     scenario = Scenario.load(ROOT / "scenarios" / scenario_dir)
     out = tmp_path / f"{scenario.name}.jsonl"
     engines = {a: FakeEngine(reply) for a in scenario.actors}
-    engine.run(scenario, seed=1, out=out, engines=engines, turns=turns)
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        pool.submit(engine.run, scenario, seed=1, out=out, engines=engines, turns=turns).result()
     return engine.read_records(out)
 
 
@@ -2146,7 +2155,19 @@ Expected: PASS. If a test fails, the viewer is wrong, not the test; fix `viewer.
 
 Change `if (!V.frozen && !V.done) V.clock += dt;` in `viewer.js` to `if (!V.frozen && !V.done && V.auto) V.clock += dt;` (the mockup's original bug). Run `uv run pytest tests/browser -q -k recorded_resolution`. Expected: FAIL. Revert the change.
 
-- [ ] **Step 5: Add Chromium to CI**
+- [ ] **Step 5: Run the browser suite in its own pytest process**
+
+Playwright's sync API keeps an event loop running for as long as the session-scoped `browser` fixture lives. Pytest collects `tests/browser/` before `tests/test_*.py`, so in one process every later test that calls `asyncio.run` (every `engine.run`) would fail with `RuntimeError: asyncio.run() cannot be called from a running event loop`. `make test` therefore runs the two suites as two processes. In `Makefile`:
+
+```make
+test:
+	uv run pytest --ignore=tests/browser
+	uv run pytest tests/browser
+```
+
+Run: `make test`. Expected: both runs pass (the second skips if Chromium is not installed). Then prove the split matters: run `uv run pytest tests` (one process) and expect `asyncio.run() cannot be called from a running event loop` failures after the browser tests; that is the failure the split prevents.
+
+- [ ] **Step 6: Add Chromium to CI**
 
 In `.github/workflows/tests.yml`, add a step before `make test`:
 
@@ -2155,10 +2176,10 @@ In `.github/workflows/tests.yml`, add a step before `make test`:
       - run: uv run playwright install --with-deps chromium
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add tests/browser .github/workflows/tests.yml
+git add tests/browser .github/workflows/tests.yml Makefile
 git commit -m "test(browser): the viewer and the shell in real Chromium, in CI"
 ```
 
