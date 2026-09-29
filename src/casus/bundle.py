@@ -50,12 +50,12 @@ def bundle(
     if not any(r["kind"] == "state" for r in kept):
         raise BundleError(f"{transcript} has no state records to replay")
 
-    html = (template or TEMPLATE).read_text()
-    map_json = (worldmap or WORLDMAP).read_text()
+    html = (template or TEMPLATE).read_text(encoding="utf-8")
+    map_json = (worldmap or WORLDMAP).read_text(encoding="utf-8")
 
     # Every template-owned token goes in before the data, so a transcript that
     # happens to contain a token's text cannot inject into the page.
-    html = html.replace(STYLE_TOKEN, STYLE.read_text())
+    html = html.replace(STYLE_TOKEN, STYLE.read_text(encoding="utf-8"))
     html = html.replace(SCRIPTS_TOKEN, _escape_script(_scripts()))
     html = html.replace(MAP_TOKEN, _escape_json(map_json))
 
@@ -96,7 +96,8 @@ def viewer_records(records: list[dict]) -> list[dict]:
 
 def _scripts() -> str:
     return "\n".join(
-        f"/* ui/js/{name} */\n" + (UI / "js" / name).read_text() for name in SCRIPTS
+        f"/* ui/js/{name} */\n" + (UI / "js" / name).read_text(encoding="utf-8")
+        for name in SCRIPTS
     )
 
 

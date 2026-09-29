@@ -45,7 +45,7 @@ def _card(directory: pathlib.Path) -> dict:
     stamp = max(p.stat().st_mtime for p in directory.iterdir() if p.is_file())
     valid, findings = _verdict(str(directory), stamp)
     try:
-        data = yaml.safe_load((directory / "scenario.yaml").read_text())
+        data = yaml.safe_load((directory / "scenario.yaml").read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError):
         data = None
     if not isinstance(data, dict):
@@ -88,10 +88,11 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
-        html = (UI / "app.html").read_text()
+        html = (UI / "app.html").read_text(encoding="utf-8")
         tags = "\n".join(f'<script src="/ui/js/{n}"></script>' for n in APP_SCRIPTS)
         return html.replace("__CASUS_SCRIPTS__", tags).replace(
-            "__CASUS_WORLDMAP__", bundle._escape_json((UI / "worldmap.json").read_text())
+            "__CASUS_WORLDMAP__",
+            bundle._escape_json((UI / "worldmap.json").read_text(encoding="utf-8")),
         )
 
     @app.get("/api/scenarios")
