@@ -165,17 +165,29 @@ def _lonlat(place: str, value: object, findings: list) -> tuple[float, float] | 
     return float(value[1]), float(value[0])
 
 
+def _finite(value: object) -> float | None:
+    """A number as a finite float, else None. PyYAML reads a long run of digits as
+    an int too large for a float, and that is None too, not an OverflowError."""
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _km_value(place: str, block: dict, key: str, default: float, findings: list):
     value = block.get(key, default)
-    number = isinstance(value, int | float) and not isinstance(value, bool)
-    if not number or not math.isfinite(value) or value <= 0:
+    number = _finite(value)
+    if number is None or number <= 0:
         findings.append(
             RegionFinding(
                 place, "bad-region", f"{key} must be a positive number of km, not {value!r}"
             )
         )
         return None
-    return float(value)
+    return number
 
 
 def _parse(place: str, block: object, data: mapdata_mod.MapData, findings: list):
@@ -259,18 +271,18 @@ def _bases(specs: dict[str, _Spec], data: mapdata_mod.MapData) -> dict[tuple, Ba
 def _theatre(specs, bases, display, findings) -> tuple[float, float, float, float]:
     given = display.get("theatre")
     if given is not None:
-        numbers = (
-            isinstance(given, list | tuple)
-            and len(given) == 4
-            and all(isinstance(v, int | float) and not isinstance(v, bool) for v in given)
-        )
-        if numbers and given[0] < given[2] and given[1] < given[3]:
-            return tuple(float(v) for v in given)
+        four = isinstance(given, list | tuple) and len(given) == 4
+        numbers = [_finite(v) for v in given] if four else [None]
+        if None not in numbers:
+            lon0, lat0, lon1, lat1 = numbers
+            if -180 <= lon0 < lon1 <= 180 and -90 <= lat0 < lat1 <= 90:
+                return (lon0, lat0, lon1, lat1)
         findings.append(
             RegionFinding(
                 "display.theatre",
                 "bad-theatre",
-                f"{given!r} is not [lon0, lat0, lon1, lat1] with lon0 < lon1 and lat0 < lat1",
+                f"{given!r} is not [lon0, lat0, lon1, lat1] on the globe with "
+                "lon0 < lon1 and lat0 < lat1",
             )
         )
     parts = list(bases.values())
@@ -333,13 +345,14 @@ def _carve(place, spec, shapes, sea, frame, findings) -> None:
 
 
 def _kept(shapes, specs, findings) -> dict[str, BaseGeometry]:
-    """Only regions a room could see. An empty one, or one smaller than a default
-    site, is a finding and gets no polygon."""
+    """Only regions a room could see. An empty one (also one that snaps to nothing
+    on the grid), or one smaller than a default site, is a finding and gets no
+    polygon."""
     smallest = math.pi * DEFAULT_RADIUS_KM**2
     kept: dict[str, BaseGeometry] = {}
     for place, geom in sorted(shapes.items()):
         geom = _polygonal(geom)
-        if geom.is_empty:
+        if geom.is_empty or not _coords(geom):
             findings.append(RegionFinding(place, "empty-region", "its region came out empty"))
             continue
         km2 = _local(geom, geom.centroid.y).area
@@ -361,11 +374,9 @@ def _latlon(place: str, spec: dict, geom: BaseGeometry, findings: list) -> None:
     """A place that also carries lat/lon attributes must put them on or near its
     region: no farther away than the region's own size."""
     attrs = spec.get("attrs") or {}
-    lat, lon = attrs.get("lat"), attrs.get("lon")
-    for value in (lat, lon):
-        number = isinstance(value, int | float) and not isinstance(value, bool)
-        if not number or not math.isfinite(value):
-            return
+    lat, lon = _finite(attrs.get("lat")), _finite(attrs.get("lon"))
+    if lat is None or lon is None:
+        return
     local = _local(geom, lat)
     size = math.sqrt(local.area / math.pi)
     off = local.distance(_local(Point(lon, lat), lat))
@@ -391,9 +402,12 @@ def _label(spec: _Spec, geom: BaseGeometry) -> tuple[float, float]:
 
 
 def _coords(geom: BaseGeometry) -> list:
-    """GeoJSON MultiPolygon coordinates on the 0.001° grid."""
+    """GeoJSON MultiPolygon coordinates on the 0.001° grid, without the parts
+    that snapping collapses to nothing."""
     snapped = shapely.set_precision(geom, GRID)
-    polygons = [p for p in shapely.get_parts(snapped) if p.geom_type == "Polygon"]
+    polygons = [
+        p for p in shapely.get_parts(snapped) if p.geom_type == "Polygon" and not p.is_empty
+    ]
     return [
         [
             [[round(x, DECIMALS), round(y, DECIMALS)] for x, y in ring.coords]
@@ -431,11 +445,16 @@ def compute(places: dict[str, dict], display: dict, *, mapdata=None) -> Regions:
     data = mapdata if mapdata is not None else mapdata_mod.load_admin1()
     findings: list[RegionFinding] = []
     specs: dict[str, _Spec] = {}
-    for place in sorted(places):
-        if isinstance(places[place], dict) and "region" in places[place]:
-            spec = _parse(place, places[place]["region"], data, findings)
-            if spec is not None:
-                specs[place] = spec
+    for place in sorted(places, key=str):
+        if not (isinstance(places[place], dict) and "region" in places[place]):
+            continue
+        if not isinstance(place, str):
+            message = f"the place id {place!r} is not a string; quote it in the YAML"
+            findings.append(RegionFinding(str(place), "bad-region", message))
+            continue
+        spec = _parse(place, places[place]["region"], data, findings)
+        if spec is not None:
+            specs[place] = spec
     bases = _bases(specs, data)
     theatre = _theatre(specs, bases, display or {}, findings)
     frame = box(*theatre)

@@ -3,6 +3,7 @@ on real borders. One test at the end reads the packaged data."""
 
 from __future__ import annotations
 
+import datetime
 import itertools
 import json
 import math
@@ -196,16 +197,39 @@ def test_the_digest_follows_the_region_blocks_and_the_theatre_only():
     assert region_digest(places, [0, 0, 1, 1]) != region_digest(places)
 
 
-@pytest.mark.parametrize(
-    "places",
-    [
-        {"x": "region"},
-        {"g": {"region": {"sea": [1.0, -1.0], "reach_km": math.nan}}},
-        {"g": {"region": {"sea": [1.0, -1.0], "reach_km": math.inf}}},
-    ],
-)
-def test_a_malformed_place_is_no_region_and_does_not_raise(places):
-    assert _compute(places).places == {}
+def test_a_place_that_is_not_a_mapping_is_no_region_and_does_not_raise():
+    assert _compute({"x": "region"}).places == {}
+
+
+@pytest.mark.parametrize("reach", [math.nan, math.inf, 10**400], ids=["nan", "inf", "huge"])
+def test_a_size_that_is_not_a_finite_number_is_a_finding(reach):
+    """PyYAML reads a long run of digits as an int too large for a float."""
+    result = _compute({"g": {"region": {"sea": [1.0, -1.0], "reach_km": reach}}})
+    assert [(f.place, f.code) for f in result.findings] == [("g", "bad-region")]
+    assert result.places == {}
+
+
+def test_a_place_id_that_is_not_a_string_is_a_finding():
+    """YAML reads `1:` as an int; sorting it among string ids must not raise."""
+    places = {1: {"region": {"provinces": ["AA-1"]}}, "b": {"region": {"provinces": ["AA-2"]}}}
+    result = _compute(places)
+    assert [(f.place, f.code) for f in result.findings] == [("1", "bad-region")]
+    assert set(result.places) == {"b"}
+    assert region_digest(places) != region_digest({"b": places["b"]})
+
+
+def test_the_digest_takes_any_value_yaml_can_produce():
+    """A date and an int key are valid YAML that json cannot encode or sort as is."""
+    places = {"a": {"region": {"provinces": ["AA-1"], "when": datetime.date(2026, 9, 29)}}}
+    assert region_digest(places) == region_digest(places)
+    assert region_digest({"a": {"region": {1: "x", "y": 2}}})
+
+
+def test_a_site_smaller_than_the_grid_is_a_finding():
+    """A disc under about 60 m across snaps to nothing on the 0.001° grid."""
+    result = _compute({"buoy": {"region": {"site": [1.0, -1.0], "radius_km": 0.02}}})
+    assert [(f.place, f.code) for f in result.findings] == [("buoy", "empty-region")]
+    assert result.places == {}
 
 
 def _codes(result: regions.Regions) -> list[str]:
@@ -318,7 +342,9 @@ def test_latlon_inside_the_region_is_not_a_finding():
     assert result.findings == []
 
 
-@pytest.mark.parametrize("lat", [math.inf, math.nan, True])
+@pytest.mark.parametrize(
+    "lat", [math.inf, math.nan, True, 10**400], ids=["inf", "nan", "bool", "huge"]
+)
 def test_latlon_that_is_not_a_finite_number_is_not_checked(lat):
     result = _compute(
         {"x": {"region": {"provinces": ["AA-1"]}, "attrs": {"lat": lat, "lon": 7.0}}}
@@ -342,9 +368,32 @@ def test_a_malformed_region_block_is_a_finding(block):
     assert _codes(_compute({"x": {"region": block}})) == ["bad-region"]
 
 
-def test_a_malformed_theatre_is_a_finding():
-    result = _compute({"x": {"region": {"provinces": ["AA-1"]}}}, {"theatre": [5, 0, 1, 1]})
+@pytest.mark.parametrize(
+    "theatre",
+    [
+        [5, 0, 1, 1],
+        [-math.inf, -math.inf, math.inf, math.inf],
+        [-math.inf, 0, 1, 1],
+        [0, 0, math.nan, 1],
+        [0, 0, 10**400, 1],
+        [-200, -100, 200, 100],
+        [0, -91, 1, 1],
+    ],
+    ids=["reversed", "infinite", "minus-inf", "nan", "huge", "off-the-globe", "below-the-pole"],
+)
+def test_a_malformed_theatre_is_a_finding(theatre):
+    result = _compute({"x": {"region": {"provinces": ["AA-1"]}}}, {"theatre": theatre})
     assert _codes(result) == ["bad-theatre"]
+    assert set(result.places) == {"x"}
+    json.dumps(result.to_json("abc"), allow_nan=False)
+
+
+def test_a_theatre_may_be_the_whole_globe():
+    result = _compute(
+        {"x": {"region": {"provinces": ["AA-1"]}}}, {"theatre": [-180, -90, 180, 90]}
+    )
+    assert result.findings == []
+    assert result.theatre == (-180.0, -90.0, 180.0, 90.0)
 
 
 def test_squares_sharing_an_edge_are_neighbours():
