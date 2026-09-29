@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 UI = pathlib.Path(__file__).parent.parent.parent / "ui"
 TEMPLATE = UI / "bundle.html"
@@ -52,15 +53,16 @@ def bundle(
     html = (template or TEMPLATE).read_text()
     map_json = (worldmap or WORLDMAP).read_text()
 
-    # The code goes in before the data, so a transcript that happens to contain
-    # a token's text cannot inject into the page.
+    # Every template-owned token goes in before the data, so a transcript that
+    # happens to contain a token's text cannot inject into the page.
     html = html.replace(STYLE_TOKEN, STYLE.read_text())
-    html = html.replace(SCRIPTS_TOKEN, _escape(_scripts()))
+    html = html.replace(SCRIPTS_TOKEN, _escape_script(_scripts()))
+    html = html.replace(MAP_TOKEN, _escape_json(map_json))
 
     # A closing script tag inside inlined JSON would end the block early and
-    # leave the rest of the payload rendering as page text.
-    payload = _escape(json.dumps(kept, ensure_ascii=False, separators=(",", ":")))
-    html = html.replace(DATA_TOKEN, payload).replace(MAP_TOKEN, _escape(map_json))
+    # run whatever follows it as page markup.
+    payload = json.dumps(kept, ensure_ascii=False, separators=(",", ":"))
+    html = html.replace(DATA_TOKEN, _escape_json(payload))
 
     out_path = pathlib.Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,5 +105,13 @@ def _read(path: pathlib.Path) -> list[dict]:
         return [json.loads(line) for line in fh if line.strip()]
 
 
-def _escape(text: str) -> str:
-    return text.replace("</script", "<\\/script").replace("<!--", "<\\!--")
+def _escape_json(text: str) -> str:
+    """JSON with no `<` left in it, so no tag in any letter case can open or close.
+    In valid JSON a `<` sits only inside a string, where `\\u003c` means the same."""
+    return text.replace("<", "\\u003c")
+
+
+def _escape_script(text: str) -> str:
+    """Code with no end tag in it. End-tag names are case-insensitive in HTML."""
+    text = re.sub(r"</(script)", r"<\\/\1", text, flags=re.IGNORECASE)
+    return text.replace("<!--", "<\\!--")

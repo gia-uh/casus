@@ -1,5 +1,6 @@
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -172,3 +173,45 @@ def test_the_bundle_boots_the_viewer_in_recorded_mode(transcript, tmp_path):
 def test_no_script_or_style_in_the_bundle_names_a_web_font(transcript, tmp_path):
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
     assert "fonts.googleapis" not in html and "@import" not in html
+
+
+def _bundle_with_rationale(tmp_path, rationale):
+    out = tmp_path / "run.jsonl"
+    scenario = Scenario.load(SMOKE)
+    reply = {"actions": [{"type": "hold"}], "rationale": rationale, "assessment": ""}
+    engine.run(scenario, seed=1, out=out, engines=_engines(scenario, reply), turns=1)
+    html = bundle.bundle(out, tmp_path / "demo.html").read_text()
+    return html, bundle.viewer_records(engine.read_records(out))
+
+
+def _data_block(html):
+    """The data block as the browser reads it: up to the first closing script tag,
+    in any letter case."""
+    start = html.index('<script id="casus-data" type="application/json">') + len(
+        '<script id="casus-data" type="application/json">'
+    )
+    end = re.search(r"</script", html[start:], re.IGNORECASE).start()
+    return html[start : start + end]
+
+
+def test_a_closing_script_tag_in_any_case_cannot_end_the_block_early(tmp_path):
+    """HTML end-tag names are case-insensitive, so '</SCRIPT>' in model text ends
+    the data block as surely as '</script>' does, and what follows runs as code."""
+    hostile = "we will </SCRIPT><script>alert(1)</SCRIPT> and </Script> hold <!--"
+    html, kept = _bundle_with_rationale(tmp_path, hostile)
+    template = bundle.TEMPLATE.read_text()
+    closing = re.compile(r"</script", re.IGNORECASE)
+    assert len(closing.findall(html)) == len(closing.findall(template))
+    assert json.loads(_data_block(html)) == kept
+
+
+def test_a_token_in_the_model_text_is_not_filled(tmp_path):
+    """A token filled after the data would splice its asset into the transcript's
+    text and leave the data block unparseable."""
+    tokens = [bundle.DATA_TOKEN, bundle.MAP_TOKEN, bundle.STYLE_TOKEN, bundle.SCRIPTS_TOKEN]
+    html, kept = _bundle_with_rationale(tmp_path, "hold " + " ".join(tokens))
+    assert json.loads(_data_block(html)) == kept
+    assert html.count(bundle.STYLE.read_text()) == 1
+    assert html.count(bundle.WORLDMAP.read_text()[:200]) == 1
+    for name in bundle.SCRIPTS:
+        assert html.count(f"/* ui/js/{name} */") == 1
