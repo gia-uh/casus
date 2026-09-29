@@ -31,7 +31,7 @@ class RunInfo:
 def _scan(path: pathlib.Path) -> RunInfo | None:
     header, states, failed, ended, torn = None, 0, False, False, False
     try:
-        with path.open(encoding="utf-8") as fh:
+        with path.open("rb") as fh:
             for line in fh:
                 if not line.strip():
                     continue
@@ -39,9 +39,10 @@ def _scan(path: pathlib.Path) -> RunInfo | None:
                     return None
                 try:
                     record = json.loads(line)
-                except json.JSONDecodeError:
-                    # A half-written last line is the end of the file; if
-                    # another line follows it, the file is not a transcript.
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    # A half-written last line, even one cut inside a UTF-8
+                    # character, is the end of the file; if another line
+                    # follows it, the file is not a transcript.
                     torn = True
                     continue
                 if not isinstance(record, dict):
@@ -57,14 +58,14 @@ def _scan(path: pathlib.Path) -> RunInfo | None:
                     failed = True
                 elif kind == "end":
                     ended = True
-    except (OSError, UnicodeDecodeError):
+    except OSError:
         return None
     if header is None:
         return None
     status: Status = "failed" if failed else "complete" if ended and not torn else "incomplete"
     try:
         seed, turns_planned = int(header.get("seed", 0)), int(header.get("turns", 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return RunInfo(
         id=path.stem,

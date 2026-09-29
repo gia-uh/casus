@@ -58,6 +58,16 @@ def test_a_half_written_last_line_is_read_as_the_end_of_the_file(tmp_path):
     assert (info.status, info.turns_done) == ("incomplete", 1)
 
 
+def test_a_last_line_cut_inside_a_multibyte_character_is_torn(tmp_path):
+    path = _run(tmp_path, seed=9, turns=2)
+    lines = path.read_text().splitlines()
+    last_state = max(i for i, line in enumerate(lines) if json.loads(line)["kind"] == "state")
+    head = ("\n".join(lines[:last_state]) + "\n").encode()
+    path.write_bytes(head + '{"kind":"state","text":"ñ'.encode()[:-1])
+    [info] = studies.list_runs(tmp_path)
+    assert (info.status, info.turns_done) == ("incomplete", 1)
+
+
 def test_an_error_before_a_half_written_last_line_is_still_failed(tmp_path):
     path = _run(tmp_path, seed=6, turns=1)
     with path.open("a") as fh:
@@ -77,4 +87,5 @@ def test_a_header_with_a_malformed_number_is_skipped(tmp_path):
     _run(tmp_path, seed=2)
     (tmp_path / "null-seed.jsonl").write_text('{"kind":"scenario","seed":null}\n')
     (tmp_path / "text-seed.jsonl").write_text('{"kind":"scenario","seed":"x"}\n')
+    (tmp_path / "inf-seed.jsonl").write_text('{"kind":"scenario","seed":Infinity}\n')
     assert [i.id for i in studies.list_runs(tmp_path)] == ["smoke-2"]
