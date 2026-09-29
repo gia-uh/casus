@@ -59,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     serve_cmd.add_argument("--port", type=int, default=8321)
     serve_cmd.add_argument("--no-open", action="store_true")
 
+    regions_cmd = sub.add_parser(
+        "regions", help="compute a scenario's map regions and adjacency into regions.json"
+    )
+    regions_cmd.add_argument("scenario", help="a scenario directory")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -71,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate(args)
     if args.command == "serve":
         return _serve(args)
+    if args.command == "regions":
+        return _regions(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -173,6 +180,45 @@ def _serve(args) -> int:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     print(f"casus: {url}")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
+def _regions(args) -> int:
+    # Imported here: only this command needs shapely and the map data.
+    import json
+
+    import yaml
+
+    from .geo import regions as regions_mod
+
+    directory = pathlib.Path(args.scenario)
+    try:
+        text = (directory / "scenario.yaml").read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"casus: {exc}", file=sys.stderr)
+        return 2
+    places = data.get("places") or {}
+    display = data.get("display") or {}
+    if not any("region" in (spec or {}) for spec in places.values()):
+        print(f"casus: {directory} has no region blocks; nothing to compute", file=sys.stderr)
+        return 2
+    result = regions_mod.compute(places, display)
+    for finding in result.findings:
+        print(f"  {finding}")
+    if result.findings:
+        count = len(result.findings)
+        print(f"casus: {directory}: {count} finding(s); regions.json not written")
+        return 1
+    out = directory / "regions.json"
+    digest = regions_mod.region_digest(places, display.get("theatre"))
+    out.write_text(
+        json.dumps(result.to_json(digest), separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    for place_id, neighbours in result.adjacency.items():
+        print(f"  {place_id}: {', '.join(neighbours) or '(none)'}")
+    size = out.stat().st_size / 1024
+    print(f"casus: wrote {out} — {len(result.places)} regions, {size:.0f} KiB")
     return 0
 
 

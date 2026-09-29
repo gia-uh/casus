@@ -7,7 +7,13 @@ itself.
 
 from __future__ import annotations
 
+import json
+import pathlib
+
+import yaml
 from v1shape import ActorState, Force, RegionState, WorldState
+
+from casus.geo.digest import region_digest
 
 
 def make_actor(actor_id: str, **overrides) -> ActorState:
@@ -123,3 +129,68 @@ def scripted(per_actor: dict[str, dict] | None = None, default: dict | None = No
         return per_actor.get(actor, fallback)
 
     return reply
+
+
+SMOKE_DIR = pathlib.Path(__file__).parent.parent / "scenarios" / "smoke"
+
+#: The smoke scenario's three places on real Cuban provinces and the Straits of
+#: Florida, for the tests that run `casus regions` on the packaged map data.
+CUBA_BLOCKS = {
+    "b-home": {"provinces": ["CU-03", "CU-16"]},
+    "border": {"provinces": ["CU-04"]},
+    "r-home": {"sea": [24.2, -81.3], "reach_km": 240},
+}
+
+#: Region blocks nobody computes: the loading tests write regions.json by hand
+#: with SMOKE_REGION_GRAPH, so they need neither shapely nor the map data.
+SMOKE_REGION_BLOCKS = {
+    "b-home": {"provinces": ["XX-1"]},
+    "border": {"provinces": ["XX-2"]},
+    "r-home": {"provinces": ["XX-3"]},
+}
+SMOKE_REGION_GRAPH = {
+    "b-home": ["border"],
+    "border": ["b-home", "r-home"],
+    "r-home": ["border"],
+}
+
+
+def smoke_with_regions(tmp_path, blocks, *, keep_lists=(), change=None) -> pathlib.Path:
+    """A copy of the smoke scenario whose places carry `blocks` as region blocks.
+    A place not named in `keep_lists` loses its plain adjacency list, so the
+    computed graph fills it; each place loses its lat/lon, since the blocks put it
+    elsewhere. `change` edits the data before it is written."""
+    data = yaml.safe_load((SMOKE_DIR / "scenario.yaml").read_text())
+    for place_id, block in blocks.items():
+        place = data["places"][place_id]
+        place["region"] = block
+        place["attrs"].pop("lat", None)
+        place["attrs"].pop("lon", None)
+        if place_id not in keep_lists:
+            del place["adjacency"]
+    if change is not None:
+        change(data)
+    directory = tmp_path / "smoke-regions"
+    directory.mkdir()
+    (directory / "scenario.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    (directory / "rules.py").write_text((SMOKE_DIR / "rules.py").read_text())
+    return directory
+
+
+def write_regions(directory, adjacency, **overrides) -> pathlib.Path:
+    """A regions.json written by hand, fresh for the scenario beside it."""
+    data = yaml.safe_load((directory / "scenario.yaml").read_text())
+    theatre = (data.get("display") or {}).get("theatre")
+    doc = {
+        "version": 1,
+        "mapdata": "hand-written",
+        "digest": region_digest(data["places"], theatre),
+        "theatre": [-84.0, 21.5, -80.0, 25.5],
+        "land": [],
+        "places": {},
+        "adjacency": adjacency,
+        **overrides,
+    }
+    path = directory / "regions.json"
+    path.write_text(json.dumps(doc))
+    return path
