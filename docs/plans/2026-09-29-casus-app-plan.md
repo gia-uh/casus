@@ -116,11 +116,11 @@ tests/
   test_settings.py          5
   test_design_*.py          6
   test_evaluate_*.py        7
-  browser/                  1: Playwright suite, own CI job
+  browser/                  1: Playwright suite, run by `make test` in the one CI job
     conftest.py             1: fixtures that build a bundle and start `casus serve`
     test_viewer.py          1, 2, 3, 4
     test_app.py             1, 5, 6, 7
-.github/workflows/tests.yml 1: adds the `browser` job
+.github/workflows/tests.yml 1: installs Chromium for the one job
 ```
 
 Script load order, fixed, in both `app.html` and the bundle: `i18n.js`, `records.js`, `map.js`, `card.js`, `viewer.js`, `shell.js`, then `workshop.js` and `study.js` in the app only.
@@ -446,7 +446,7 @@ keeps `#app` (the bundle). `Casus.shell` passes every path segment after the rou
 
 ## After each slice
 
-- [ ] `make test` passes locally for the files the slice touched; CI runs the full suite and the browser job.
+- [ ] `make test` passes locally for the files the slice touched; CI runs the full suite, the browser suite included, in its one job.
 - [ ] The slice's own acceptance check from its plan, done the way a person would: open the app or the bundle and look.
 - [ ] The spec's status header gains the slice number that implemented it; this plan's slice table gains the PR number.
 - [ ] Journal entry in the workspace: `commit` and, at the end of a slice, `milestone`.
