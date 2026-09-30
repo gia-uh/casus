@@ -13,14 +13,17 @@ rejected action on turn four.
 from __future__ import annotations
 
 import dataclasses
+import json
 import pathlib
 import types
 from typing import Any
 
 import yaml
 
+from .geo.digest import region_digest
 from .ruleset import RuleSet
 from .state import Actor, Entity, Place, WorldState
+from .validate import Finding
 from .validate.static import check_source
 
 #: The fields an action may carry. Each maps to one field of `state.Action`.
@@ -28,6 +31,9 @@ ACTION_FIELDS = frozenset({"place", "target", "entities", "intensity"})
 
 #: Where shipped rulesets live, for `rules: <name>`.
 SHIPPED = pathlib.Path(__file__).resolve().parents[2] / "scenarios"
+
+#: Where `casus regions` writes a scenario's polygons and computed adjacency.
+REGIONS_FILE = "regions.json"
 
 
 class ScenarioError(ValueError):
@@ -63,6 +69,11 @@ class Scenario:
     origin: str = ""
     #: The module the rules were executed into, for reading a ruleset's constants.
     module: types.ModuleType | None = dataclasses.field(default=None, compare=False, repr=False)
+    #: regions.json as loaded, when the scenario has region blocks. The transcript
+    #: carries it, so replay and the viewer need nothing else.
+    regions: dict[str, Any] | None = dataclasses.field(default=None, compare=False, repr=False)
+    #: Findings that do not stop a load: a plain adjacency list the regions disagree with.
+    warnings: tuple[Finding, ...] = dataclasses.field(default=(), compare=False, repr=False)
 
     # --- loading --------------------------------------------------------
 
@@ -77,8 +88,10 @@ class Scenario:
         data = yaml.safe_load(manifest.read_text())
         if not isinstance(data, dict):
             raise ScenarioError("scenario.yaml must contain a mapping")
+        regions, warnings = _apply_regions(directory, data)
         rules_path = cls._rules_path(directory, data.get("rules"))
         scenario = cls.from_parts(data, rules_path.read_text(), origin=str(rules_path))
+        scenario = dataclasses.replace(scenario, regions=regions, warnings=tuple(warnings))
         if validate:
             from .validate.dynamic import dry_run
 
@@ -213,6 +226,77 @@ def load_rules(source: str, origin: str) -> types.ModuleType:
     return module
 
 
+def _apply_regions(directory: pathlib.Path, data: dict[str, Any]) -> tuple[dict | None, list]:
+    """Fill each place's adjacency from regions.json: the computed graph, then the
+    YAML's `add`/`remove` exceptions, applied at both ends so no edge is one-way.
+    A plain list stays authoritative for its place; where it disagrees with the
+    regions that is a warning, so an older scenario migrates one place at a time.
+    Needs neither shapely nor the map data: `casus regions` did the geometry."""
+    places = data.get("places")
+    if not isinstance(places, dict) or not any(
+        isinstance(spec, dict) and "region" in spec for spec in places.values()
+    ):
+        return None, []
+    path = directory / REGIONS_FILE
+    fix = f"run: casus regions {directory}"
+    if not path.is_file():
+        raise ScenarioError(f"{directory} has region blocks but no {REGIONS_FILE}; {fix}")
+    regions = json.loads(path.read_text(encoding="utf-8"))
+    theatre = (data.get("display") or {}).get("theatre")
+    if regions.get("digest") != region_digest(places, theatre):
+        raise ScenarioError(
+            f"{path} is stale: the region blocks changed since it was computed; {fix}"
+        )
+    computed = regions.get("adjacency") or {}
+    graph = {
+        place_id: set(computed.get(place_id, ()))
+        for place_id, spec in places.items()
+        if isinstance(spec, dict) and "region" in spec
+    }
+    for place_id, spec in places.items():
+        exceptions = (spec or {}).get("adjacency")
+        if not isinstance(exceptions, dict):
+            continue
+        if place_id not in graph:
+            raise ScenarioError(
+                f"place '{place_id}' lists adjacency exceptions but has no region block"
+            )
+        verbs = set(exceptions) - {"add", "remove"}
+        if verbs:
+            raise ScenarioError(
+                f"place '{place_id}': adjacency exceptions are add and remove, "
+                f"not {sorted(verbs)}"
+            )
+        for verb in ("add", "remove"):
+            for other in exceptions.get(verb) or ():
+                if other not in places:
+                    raise ScenarioError(
+                        f"place '{place_id}' {verb}s adjacency to unknown place '{other}'"
+                    )
+                if verb == "add":
+                    graph[place_id].add(other)
+                    graph.setdefault(other, set()).add(place_id)
+                else:
+                    graph[place_id].discard(other)
+                    graph.get(other, set()).discard(place_id)
+    warnings = []
+    for place_id, spec in places.items():
+        listed = (spec or {}).get("adjacency")
+        if isinstance(listed, list):
+            if place_id in graph and set(listed) != graph[place_id]:
+                warnings.append(
+                    Finding(
+                        "adjacency-differs",
+                        f"place '{place_id}' lists {sorted(listed)}; its region gives "
+                        f"{sorted(graph[place_id])}",
+                        str(path),
+                    )
+                )
+        elif place_id in graph:
+            spec["adjacency"] = sorted(graph[place_id])
+    return regions, warnings
+
+
 def _check_structure(d: dict[str, Any]) -> None:
     for key in ("name", "actors", "places", "actions"):
         if key not in d:
@@ -243,7 +327,14 @@ def _check_structure(d: dict[str, Any]) -> None:
         owner = spec.get("owner") or ""
         if owner and owner not in actors:
             raise ScenarioError(f"place '{place_id}' is owned by unknown actor '{owner}'")
-        for neighbour in spec.get("adjacency") or ():
+        adjacency = spec.get("adjacency") or ()
+        if isinstance(adjacency, dict):
+            raise ScenarioError(
+                f"place '{place_id}' lists adjacency exceptions "
+                f"({', '.join(sorted(adjacency))}); only Scenario.load applies them, "
+                "from regions.json"
+            )
+        for neighbour in adjacency:
             if neighbour not in places:
                 raise ScenarioError(
                     f"place '{place_id}' is adjacent to unknown place '{neighbour}'"

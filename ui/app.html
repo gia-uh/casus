@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>casus</title>
+<link rel="stylesheet" href="/ui/css/app.css">
+</head>
+<body>
+<div id="appshell">
+  <div class="topbar chrome"><div class="brand" onclick="location.hash='#/'">cas<b>us</b></div><div class="crumbs" id="crumbs"></div><div class="sp"></div><div id="topactions"></div></div>
+  <div id="view"></div>
+</div>
+<script id="casus-worldmap" type="application/json">__CASUS_WORLDMAP__</script>
+<script>window.CASUS_WORLDMAP = JSON.parse(document.getElementById("casus-worldmap").textContent);</script>
+__CASUS_SCRIPTS__
+<script>Casus.shell.start();</script>
+</body>
+</html>

@@ -1,6 +1,11 @@
 """Scenarios are directories: data in YAML, physics in Python."""
 
+import json
+import pathlib
 import random
+import re
+import subprocess
+import sys
 import textwrap
 
 import pytest
@@ -11,6 +16,7 @@ from casus import proxy
 from casus.resolver import resolve
 from casus.scenario import Scenario, ScenarioError, ScenarioInvalid
 from casus.state import Action
+from helpers import SMOKE_REGION_BLOCKS, SMOKE_REGION_GRAPH, smoke_with_regions, write_regions
 
 SMOKE = SCENARIOS / "smoke"
 
@@ -221,3 +227,115 @@ def test_a_scenario_declares_its_language_and_defaults_to_english(tmp_path):
     data = _minimal()
     data.pop("language", None)
     assert Scenario.load(_write(tmp_path, data)).language() == "en"
+
+
+# --- regions -------------------------------------------------------------------
+
+
+def test_region_blocks_without_regions_json_fail_with_the_command(tmp_path):
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS)
+    with pytest.raises(ScenarioError, match=re.escape(f"run: casus regions {directory}")):
+        Scenario.load(directory, validate=False)
+
+
+def test_a_stale_regions_json_fails_with_the_command(tmp_path):
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS)
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    manifest = directory / "scenario.yaml"
+    manifest.write_text(manifest.read_text().replace("XX-3", "XX-4"))
+    with pytest.raises(ScenarioError, match="stale") as excinfo:
+        Scenario.load(directory, validate=False)
+    assert f"casus regions {directory}" in str(excinfo.value)
+
+
+def test_the_computed_graph_fills_each_place_adjacency(tmp_path):
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS)
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    world = Scenario.load(directory, validate=False).initial_state()
+    assert {p: list(place.adjacency) for p, place in world.places.items()} == SMOKE_REGION_GRAPH
+
+
+def test_exceptions_add_and_remove_an_edge_at_both_ends(tmp_path):
+    def exceptions(data):
+        data["places"]["b-home"]["adjacency"] = {"add": ["r-home"], "remove": ["border"]}
+
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS, change=exceptions)
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    world = Scenario.load(directory, validate=False).initial_state()
+    assert world.places["b-home"].adjacency == ("r-home",)
+    assert world.places["r-home"].adjacency == ("b-home", "border")
+    assert world.places["border"].adjacency == ("r-home",)
+
+
+def test_a_plain_list_stays_authoritative_and_a_disagreement_is_a_warning(tmp_path):
+    def listed(data):
+        data["places"]["r-home"]["adjacency"] = ["border", "b-home"]
+
+    directory = smoke_with_regions(
+        tmp_path, SMOKE_REGION_BLOCKS, keep_lists=("r-home",), change=listed
+    )
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    scenario = Scenario.load(directory, validate=False)
+    assert scenario.initial_state().places["r-home"].adjacency == ("border", "b-home")
+    [warning] = scenario.warnings
+    assert warning.code == "adjacency-differs" and "'r-home'" in warning.message
+
+
+def test_a_plain_list_that_matches_the_geometry_is_silent(tmp_path):
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS, keep_lists=("border",))
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    assert Scenario.load(directory, validate=False).warnings == ()
+
+
+def test_an_exception_naming_an_unknown_place_fails(tmp_path):
+    def exceptions(data):
+        data["places"]["border"]["adjacency"] = {"add": ["nowhere"]}
+
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS, change=exceptions)
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    with pytest.raises(ScenarioError, match="unknown place 'nowhere'"):
+        Scenario.load(directory, validate=False)
+
+
+def test_from_parts_refuses_exceptions_it_cannot_resolve():
+    data = yaml.safe_load((SMOKE / "scenario.yaml").read_text())
+    data["places"]["border"]["adjacency"] = {"remove": ["b-home"]}
+    with pytest.raises(ScenarioError, match="only Scenario.load applies them"):
+        Scenario.from_parts(data, (SMOKE / "rules.py").read_text())
+
+
+def test_a_scenario_with_regions_validates_and_carries_them(tmp_path):
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS)
+    written = json.loads(write_regions(directory, SMOKE_REGION_GRAPH).read_text())
+    scenario = Scenario.load(directory)
+    assert scenario.regions == written
+
+
+def test_loading_and_running_with_regions_never_import_shapely(tmp_path):
+    """Running, replaying and bundling read regions.json. Only `casus regions`
+    needs shapely and the map data."""
+    directory = smoke_with_regions(tmp_path, SMOKE_REGION_BLOCKS)
+    write_regions(directory, SMOKE_REGION_GRAPH)
+    script = textwrap.dedent(
+        f"""
+        import pathlib, sys
+        from casus import bundle, engine
+        from casus.scenario import Scenario
+        from helpers import FakeEngine
+        scenario = Scenario.load({str(directory)!r}, validate=False)
+        out = pathlib.Path({str(tmp_path / "run.jsonl")!r})
+        engines = {{a: FakeEngine() for a in scenario.actors}}
+        engine.run(scenario, seed=1, out=out, engines=engines, turns=1)
+        engine.replay(out)
+        bundle.bundle(out, out.with_suffix(".html"))
+        assert "shapely" not in sys.modules, "shapely was imported"
+        """
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=pathlib.Path(__file__).parent,
+    )
+    assert done.returncode == 0, done.stderr[-800:]

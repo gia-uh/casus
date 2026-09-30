@@ -74,3 +74,33 @@ def rung_label(scenario: Scenario, rung: int) -> str | None:
     if not names or not 0 <= int(rung) < len(names):
         return None
     return str(names[int(rung)])
+
+
+def _labels(scenario: Scenario) -> dict[str, str]:
+    return (scenario.display.get("labels") or {}).get(scenario.language()) or {}
+
+
+def actor_label(scenario: Scenario, actor_id: str) -> str:
+    """What the room reads for an actor: the label in the scenario's language,
+    else the actor's name, else its id."""
+    labelled = _labels(scenario).get(actor_id)
+    if labelled:
+        return str(labelled)
+    return str((scenario.data["actors"].get(actor_id) or {}).get("name") or actor_id)
+
+
+def place_label(scenario: Scenario, place_id: str) -> str:
+    labelled = _labels(scenario).get(place_id)
+    if labelled:
+        return str(labelled)
+    return str((scenario.data["places"].get(place_id) or {}).get("name") or place_id)
+
+
+def card(scenario: Scenario) -> tuple[str, ...]:
+    """The place attributes the place card shows, in order."""
+    return tuple(scenario.display.get("card") or ())
+
+
+def worse_when_higher(scenario: Scenario) -> frozenset[str]:
+    """Attributes whose rise is bad for the place, so the card colours it red."""
+    return frozenset(scenario.display.get("worse_when_higher") or ())

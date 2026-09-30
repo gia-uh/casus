@@ -31,6 +31,7 @@ uv run casus run scenarios/reference --seed 42 --out runs/run-42.jsonl
 uv run casus verify runs/run-42.jsonl
 uv run casus score runs/run-42.jsonl
 uv run casus bundle runs/run-42.jsonl --out demo.html
+uv run casus serve                       # the app on http://127.0.0.1:8321, this machine only
 ```
 
 The transport is [lingo](https://github.com/gia-uh/lingo): casus has no LLM
@@ -67,7 +68,9 @@ uv run casus run scenarios/smoke --turns 1 --no-narrate
 | `narrator.py` | Turn narration. Read-only on state, and a test enforces it |
 | `engine.py` | Turn loop, transcript, replay verification |
 | `score.py` | Scores a run against the engine's own claims |
+| `studies.py` | What is under runs/ and how far each run got |
 | `bundle.py` | Transcript + map → one self-contained HTML replayer |
+| `server/` | The local app: the shell, the scenario and run endpoints |
 
 Scenarios live under `scenarios/`. `smoke/` exercises every call a rule can make
 and is not a model of anything; `reference/` holds the reference ruleset and a

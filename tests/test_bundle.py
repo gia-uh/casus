@@ -1,5 +1,6 @@
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -105,10 +106,11 @@ def test_the_bundled_script_is_syntactically_valid(transcript, tmp_path):
         pytest.skip("node is not installed; this guard needs a JS parser")
 
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
-    code = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
-    assert code, "the bundle carries no script block"
+    blocks = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
+    assert blocks, "the bundle carries no script block"
+    code = max(blocks, key=len)
     js = tmp_path / "bundled.js"
-    js.write_text(code[-1])
+    js.write_text(code)
 
     result = subprocess.run(
         [node, "--check", str(js)], capture_output=True, text=True, check=False
@@ -126,3 +128,90 @@ def test_the_ledger_stays_in_the_transcript_and_out_of_the_bundle(transcript, tm
     """Mutations are the audit trail, and the heaviest records; no panel reads them."""
     html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
     assert '"kind":"mutation"' not in html
+
+
+def test_viewer_records_count_each_turns_mutations_in_one_ledger_record(transcript):
+    records = engine.read_records(transcript)
+    counted = {}
+    for r in records:
+        if r["kind"] == "mutation":
+            counted[r["turn"]] = counted.get(r["turn"], 0) + 1
+    kept = bundle.viewer_records(records)
+    ledgers = {r["turn"]: r["mutations"] for r in kept if r["kind"] == "ledger"}
+    assert ledgers == counted
+    assert not any(r["kind"] in ("mutation", "declaration") for r in kept)
+
+
+def test_a_ledger_record_sits_before_the_state_that_closes_its_turn(transcript):
+    kept = bundle.viewer_records(engine.read_records(transcript))
+    for i, r in enumerate(kept):
+        if r["kind"] == "ledger":
+            following = next(x for x in kept[i + 1 :] if x["kind"] == "state")
+            assert following["turn"] == r["turn"] + 1
+
+
+def test_an_error_record_reaches_the_viewer():
+    records = [
+        {"kind": "scenario", "turn": 0, "name": "x", "scenario": {}},
+        {"kind": "error", "turn": 1, "error": "rule raised"},
+    ]
+    assert bundle.viewer_records(records)[-1]["kind"] == "error"
+
+
+def test_the_bundle_inlines_every_viewer_script_in_order(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    positions = [html.index(f"/* ui/js/{name} */") for name in bundle.SCRIPTS]
+    assert positions == sorted(positions)
+    assert bundle.SCRIPTS == ("i18n.js", "records.js", "map.js", "card.js", "viewer.js")
+
+
+def test_the_bundle_boots_the_viewer_in_recorded_mode(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert "Casus.viewer.mount(" in html and '"recorded"' in html
+
+
+def test_no_script_or_style_in_the_bundle_names_a_web_font(transcript, tmp_path):
+    html = bundle.bundle(transcript, tmp_path / "demo.html").read_text()
+    assert "fonts.googleapis" not in html and "@import" not in html
+
+
+def _bundle_with_rationale(tmp_path, rationale):
+    out = tmp_path / "run.jsonl"
+    scenario = Scenario.load(SMOKE)
+    reply = {"actions": [{"type": "hold"}], "rationale": rationale, "assessment": ""}
+    engine.run(scenario, seed=1, out=out, engines=_engines(scenario, reply), turns=1)
+    html = bundle.bundle(out, tmp_path / "demo.html").read_text()
+    return html, bundle.viewer_records(engine.read_records(out))
+
+
+def _data_block(html):
+    """The data block as the browser reads it: up to the first closing script tag,
+    in any letter case."""
+    start = html.index('<script id="casus-data" type="application/json">') + len(
+        '<script id="casus-data" type="application/json">'
+    )
+    end = re.search(r"</script", html[start:], re.IGNORECASE).start()
+    return html[start : start + end]
+
+
+def test_a_closing_script_tag_in_any_case_cannot_end_the_block_early(tmp_path):
+    """HTML end-tag names are case-insensitive, so '</SCRIPT>' in model text ends
+    the data block as surely as '</script>' does, and what follows runs as code."""
+    hostile = "we will </SCRIPT><script>alert(1)</SCRIPT> and </Script> hold <!--"
+    html, kept = _bundle_with_rationale(tmp_path, hostile)
+    template = bundle.TEMPLATE.read_text()
+    closing = re.compile(r"</script", re.IGNORECASE)
+    assert len(closing.findall(html)) == len(closing.findall(template))
+    assert json.loads(_data_block(html)) == kept
+
+
+def test_a_token_in_the_model_text_is_not_filled(tmp_path):
+    """A token filled after the data would splice its asset into the transcript's
+    text and leave the data block unparseable."""
+    tokens = [bundle.DATA_TOKEN, bundle.MAP_TOKEN, bundle.STYLE_TOKEN, bundle.SCRIPTS_TOKEN]
+    html, kept = _bundle_with_rationale(tmp_path, "hold " + " ".join(tokens))
+    assert json.loads(_data_block(html)) == kept
+    assert html.count(bundle.STYLE.read_text()) == 1
+    assert html.count(bundle.WORLDMAP.read_text()[:200]) == 1
+    for name in bundle.SCRIPTS:
+        assert html.count(f"/* ui/js/{name} */") == 1

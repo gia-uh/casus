@@ -346,6 +346,8 @@ display:
   - fuel_days
   - intl_legitimacy
   - domestic_support
+  card: [control, infrastructure, civilian_distress]
+  worse_when_higher: [civilian_distress]
   bands:
     fuel_days:
       0.5: exhausted

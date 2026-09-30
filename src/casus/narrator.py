@@ -81,13 +81,13 @@ async def narrate(
     context = Context([Message.system(SYSTEM_PROMPT), Message.user(prompt)])
     dispatch = await engine.create(context, dispatch_model(len(facts)))
 
-    names = {a.id: a.name for a in world.actors.values()}
     lines = []
     for fact, predicate in zip(facts, dispatch.predicates, strict=True):
         text = " ".join(str(predicate).split())
         if not text:
             continue
-        subject = names.get(fact.detail.get("actor") or "", "")
+        actor = fact.detail.get("actor") or ""
+        subject = display.actor_label(scenario, actor) if actor in world.actors else ""
         sentence = f"{subject} {text}".strip() if subject else text
         lines.append(sentence if sentence.endswith((".", "!", "?")) else sentence + ".")
     return " ".join(lines)

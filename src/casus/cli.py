@@ -53,6 +53,17 @@ def main(argv: list[str] | None = None) -> int:
         "--out", default=None, help="write the report here instead of stdout"
     )
 
+    serve_cmd = sub.add_parser("serve", help="open the app in a browser, on this machine only")
+    serve_cmd.add_argument("--scenarios", default="scenarios")
+    serve_cmd.add_argument("--runs", default="runs")
+    serve_cmd.add_argument("--port", type=int, default=8321)
+    serve_cmd.add_argument("--no-open", action="store_true")
+
+    regions_cmd = sub.add_parser(
+        "regions", help="compute a scenario's map regions and adjacency into regions.json"
+    )
+    regions_cmd.add_argument("scenario", help="a scenario directory")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -63,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         return _score(args)
     if args.command == "validate":
         return _validate(args)
+    if args.command == "serve":
+        return _serve(args)
+    if args.command == "regions":
+        return _regions(args)
     return _verify(args.transcript, quiet=args.command == "replay")
 
 
@@ -110,13 +125,18 @@ def _validate(args) -> int:
     from .scenario import ScenarioInvalid
     from .validate.invariants import check_invariants
 
+    warnings: tuple = ()
     try:
-        findings = check_invariants(Scenario.load(args.scenario), turns=args.turns)
+        scenario = Scenario.load(args.scenario)
+        warnings = scenario.warnings
+        findings = check_invariants(scenario, turns=args.turns)
     except ScenarioInvalid as exc:
         findings = exc.findings
     except (ScenarioError, OSError) as exc:
         print(f"casus: {exc}", file=sys.stderr)
         return 2
+    for warning in warnings:
+        print(f"  warning: {warning}")
     for finding in findings:
         print(f"  {finding}")
     count = f"{len(findings)} finding(s)" if findings else "no findings"
@@ -147,6 +167,64 @@ def _score(args) -> int:
     else:
         print(text)
     return 0 if result.reproducible else 1
+
+
+def _serve(args) -> int:
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .server.app import create_app
+
+    app = create_app(
+        scenarios_dir=pathlib.Path(args.scenarios), runs_dir=pathlib.Path(args.runs)
+    )
+    url = f"http://127.0.0.1:{args.port}/"
+    if not args.no_open:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    print(f"casus: {url}")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
+def _regions(args) -> int:
+    # Imported here: only this command needs shapely and the map data.
+    import json
+
+    import yaml
+
+    from .geo import regions as regions_mod
+
+    directory = pathlib.Path(args.scenario)
+    try:
+        text = (directory / "scenario.yaml").read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"casus: {exc}", file=sys.stderr)
+        return 2
+    places = data.get("places") or {}
+    display = data.get("display") or {}
+    if not any("region" in (spec or {}) for spec in places.values()):
+        print(f"casus: {directory} has no region blocks; nothing to compute", file=sys.stderr)
+        return 2
+    result = regions_mod.compute(places, display)
+    for finding in result.findings:
+        print(f"  {finding}")
+    if result.findings:
+        count = len(result.findings)
+        print(f"casus: {directory}: {count} finding(s); regions.json not written")
+        return 1
+    out = directory / "regions.json"
+    digest = regions_mod.region_digest(places, display.get("theatre"))
+    out.write_text(
+        json.dumps(result.to_json(digest), separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    for place_id, neighbours in result.adjacency.items():
+        print(f"  {place_id}: {', '.join(neighbours) or '(none)'}")
+    size = out.stat().st_size / 1024
+    print(f"casus: wrote {out} — {len(result.places)} regions, {size:.0f} KiB")
+    return 0
 
 
 def _verify(transcript: str, quiet: bool) -> int:

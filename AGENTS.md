@@ -20,7 +20,7 @@ students who want to re-run it on a laptop against a local 27–32B model.
 
 `make test` passes. That is the gate; nothing else claims to be one.
 
-Three checks the suite cannot make, so they are commands a person runs:
+Four checks the suite cannot make, so they are commands a person runs:
 
 - `uv run casus run scenarios/smoke --turns 1` — the endpoint really answers.
 - `CASUS_REFERENCE_RUN=<repo>/runs/caribbean-lingo-101.jsonl uv run pytest tests/test_migration.py`
@@ -28,6 +28,8 @@ Three checks the suite cannot make, so they are commands a person runs:
   the recording and the private scenario, which git does not carry, so CI skips it.
 - Open the bundled HTML in a browser and step through it. A green suite does not
   catch a map that renders at zero height.
+- `uv run casus serve`, open a recorded run, and step through a turn with the
+  arrow key: the four beats, the hover card, `P` to present.
 
 ## The rule the design serves
 
@@ -54,13 +56,15 @@ feeds back into state, that is the moment to stop and reread the design doc.
   `reference/` ship; class scenarios live outside the repo behind the gitignored
   `scenarios/private` link, and the provenance tests skip when it does not
   resolve. See `scenarios/README.md`.
-- `ui/` — `replay.html` and the generated `worldmap.json`.
+- `ui/` — the viewer and the app: classic scripts under `js/` on one `Casus`
+  namespace, `css/app.css`, `app.html` (served by `casus serve`) and
+  `bundle.html` (the offline template `casus bundle` fills). No build step.
 - `tools/` — one-shot generators. Their output is committed; they are not imported.
 - `runs/` — recorded transcripts kept for the class.
 
 ## Conventions
 
-- Python 3.12+, English throughout. Conventional commits, one logical change each.
+- Python 3.13+, English throughout. Conventional commits, one logical change each.
 - Frozen dataclasses for state. A rule changes state only through `s.add`,
   `s.set` and the other mutation calls; the static validator rejects anything
   else.
